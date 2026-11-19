@@ -70,7 +70,8 @@ documents the LineSettle to ProcureSettle rename without rewriting history.
 - Active contract calls renew the contract instance/code and the relevant live
   PO, line, receipt, and receipt-line entries to a bounded TTL window. This is
   not permanent storage: after sufficiently long inactivity, Soroban may archive
-  an entry and an invocation will require normal ledger restoration first.
+  an entry and an invocation will require normal ledger restoration first. See
+  [storage TTL and instance renewal](docs/STORAGE-TTL.md).
 
 See [current limitations and possible future work](docs/LIMITATIONS.md) for
 the full boundary and the gaps that still need evidence.
