@@ -2561,3 +2561,77 @@ fn draft_and_unknown_pos_cannot_be_cancelled() {
     assert_eq!(header(&f, 209).status, PoStatus::Draft);
     assert!(f.client().try_get_po(&999).is_err());
 }
+
+// -------------------------------------------------------------------
+// get_remaining_line_quantity tests (issue #28)
+// -------------------------------------------------------------------
+
+#[test]
+fn get_remaining_line_quantity_returns_ordered_minus_accepted() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    create_funded_po(&f, 300, &lines);
+
+    // Initially, no quantity has been accepted.
+    assert_eq!(f.client().get_remaining_line_quantity(&300, &1), 10);
+    assert_eq!(f.client().get_remaining_line_quantity(&300, &2), 8);
+
+    // Submit and settle a partial receipt.
+    let quantities = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 6,
+        },
+        ReceiptQuantityInput {
+            line_id: 2,
+            quantity_delta: 4,
+        },
+    ];
+    authorized_submit(&f, 300, 1, &quantities);
+    authorized_settle(&f, 300, 1);
+
+    // After settling, remaining quantities are updated.
+    assert_eq!(f.client().get_remaining_line_quantity(&300, &1), 4);
+    assert_eq!(f.client().get_remaining_line_quantity(&300, &2), 4);
+
+    // Submit and settle the remaining quantities.
+    let final_quantities = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 4,
+        },
+        ReceiptQuantityInput {
+            line_id: 2,
+            quantity_delta: 4,
+        },
+    ];
+    authorized_submit(&f, 300, 2, &final_quantities);
+    authorized_settle(&f, 300, 2);
+
+    // After full fulfillment, remaining is zero.
+    assert_eq!(f.client().get_remaining_line_quantity(&300, &1), 0);
+    assert_eq!(f.client().get_remaining_line_quantity(&300, &2), 0);
+}
+
+#[test]
+fn get_remaining_line_quantity_returns_not_found_for_unknown_po() {
+    let f = fixture();
+    assert!(f
+        .client()
+        .try_get_remaining_line_quantity(&999, &1)
+        .is_err());
+}
+
+#[test]
+fn get_remaining_line_quantity_returns_not_found_for_unknown_line() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    create_funded_po(&f, 301, &lines);
+
+    assert!(f
+        .client()
+        .try_get_remaining_line_quantity(&301, &99)
+        .is_err());
+}

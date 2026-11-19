@@ -6,6 +6,19 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Ad
 /// this cap bounds caller input, duplicate checking, and total calculation.
 pub const MAX_LINES: u32 = 8;
 
+/// Minimum valid line ID. Line IDs are 1-indexed; zero is reserved for
+/// "not found" and rejected during input validation.
+pub const MIN_LINE_ID: u32 = 1;
+
+/// Minimum valid quantity for ordered/accepted/delta values. Zero quantity
+/// is semantically meaningless for a line item and is rejected during
+/// input validation.
+pub const MIN_QUANTITY: u64 = 1;
+
+/// Minimum valid PO ID. PO IDs are 1-indexed; zero is reserved for
+/// "not found" and rejected during input validation.
+pub const MIN_PO_ID: u64 = 1;
+
 /// Renew contract/data TTLs when fewer than 120 days plus one ledger remain,
 /// targeting 150 days. At the usual ~5 second ledger cadence these are
 /// 2,073,601 and 2,592,000 ledgers. The target is below Stellar's currently
@@ -144,7 +157,7 @@ impl PoSettlement {
         extend_contract_ttl(&env);
         buyer.require_auth();
 
-        if po_id == 0 {
+        if po_id < MIN_PO_ID {
             return Err(PoError::InvalidPoId);
         }
         if buyer == supplier {
@@ -166,7 +179,10 @@ impl PoSettlement {
         let mut i = 0;
         while i < lines.len() {
             let line = lines.get(i).ok_or(PoError::InvalidLine)?;
-            if line.line_id == 0 || line.ordered_quantity == 0 || line.unit_price <= 0 {
+            if line.line_id < MIN_LINE_ID
+                || line.ordered_quantity < MIN_QUANTITY
+                || line.unit_price <= 0
+            {
                 return Err(PoError::InvalidLine);
             }
 
@@ -304,7 +320,7 @@ impl PoSettlement {
         }
         header.supplier.require_auth();
 
-        if receipt_id == 0 || quantities.is_empty() || quantities.len() > header.line_count {
+        if receipt_id < MIN_PO_ID || quantities.is_empty() || quantities.len() > header.line_count {
             return Err(PoError::InvalidReceipt);
         }
         let receipt_key = DataKey::Receipt(po_id, receipt_id);
@@ -316,7 +332,7 @@ impl PoSettlement {
         let mut i = 0;
         while i < quantities.len() {
             let input = quantities.get(i).ok_or(PoError::InvalidReceipt)?;
-            if input.line_id == 0 || input.quantity_delta == 0 {
+            if input.line_id < MIN_LINE_ID || input.quantity_delta < MIN_QUANTITY {
                 return Err(PoError::InvalidReceipt);
             }
             let line: PoLine = env
@@ -632,13 +648,27 @@ impl PoSettlement {
             .get(&DataKey::Header(po_id))
             .ok_or(PoError::NotFound)
     }
-
     pub fn get_line(env: Env, po_id: u64, line_id: u32) -> Result<PoLine, PoError> {
         extend_contract_ttl(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Line(po_id, line_id))
             .ok_or(PoError::NotFound)
+    }
+
+    /// Returns the remaining quantity to be delivered on a line item,
+    /// calculated as `ordered_quantity - accepted_quantity`.
+    /// Returns `PoError::NotFound` if the PO or line does not exist.
+    pub fn get_remaining_line_quantity(env: Env, po_id: u64, line_id: u32) -> Result<u64, PoError> {
+        extend_contract_ttl(&env);
+        let line: PoLine = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Line(po_id, line_id))
+            .ok_or(PoError::NotFound)?;
+        line.ordered_quantity
+            .checked_sub(line.accepted_quantity)
+            .ok_or(PoError::ArithmeticOverflow)
     }
 }
 
