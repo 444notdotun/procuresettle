@@ -20,6 +20,82 @@ the PO closes automatically. Buyer and supplier may also cancel an Accepted or
 Funded PO together; a Funded PO refunds only its remaining unpaid value to the
 buyer.
 
+## Receipt preflight valuation
+
+`receipt_value(env, po_id, receipt_id)` is a read-only endpoint that preflights
+the exact token payout of a receipt before the buyer settles it. Clients can
+call it after `submit_receipt` and before `accept_receipt_and_settle` to show
+the amount a settlement would attempt to transfer.
+
+### How the value is calculated
+
+For each line indexed by the receipt header, the contract reads the stored
+`ReceiptLine.quantity_delta` and the current PO line's `unit_price`, then sums
+`delta × unit_price` using checked `i128` multiplication and addition. This is
+the same calculation routine used by settlement. For the flagship terms
+(line 1: 10 units at 6, line 2: 8 units at 5), a receipt with deltas 6 and 4
+returns `(6 × 6) + (4 × 5) = 56`.
+
+For a `Submitted` receipt, each delta is also checked against the line's current
+remaining quantity (`ordered_quantity - accepted_quantity`). A delta that no
+longer fits returns `QuantityExceedsRemaining`; a zero delta or nonpositive
+total returns `InvalidReceipt`; missing receipt-line or PO-line records return
+`ReceiptNotFound` or `UnknownPoLine`; and arithmetic overflow returns
+`ArithmeticOverflow`. A `Rejected` receipt returns `InvalidReceiptState`.
+A `Settled` receipt is revalued from its immutable deltas and stored unit prices
+without the remaining-quantity check, so no paid amount needs to be stored twice.
+
+### Why the preflight has no ledger state effect
+
+`receipt_value` requires no authorization, writes no PO, line, receipt, or
+receipt-line entry, and performs no token transfer. It reads state and returns
+an `i128` (or an error). Like every contract entry point, it calls the shared
+`extend_contract_ttl` helper, which only touches the contract instance/code TTL,
+not the PO or receipt entries. Clients use the normal simulation path (Stellar
+CLI/RPC read-only call without `--send`), which does not commit any state change,
+including that TTL renewal, to the ledger. Sending the same call as a transaction
+would persist the instance TTL renewal; preflights should stay in simulation.
+
+### Client usage
+
+1. The supplier submits quantities with `submit_receipt` (a state-changing call).
+2. The client simulates `receipt_value` and displays the result in the token's
+   integer base units. If it returns an error, show that the receipt cannot
+   currently settle instead of prompting the buyer.
+3. After the buyer confirms the displayed amount, call
+   `accept_receipt_and_settle`, which rechecks the value and returns the amount
+   actually transferred.
+
+```sh
+# Preflight: simulation only, no transaction and no ledger state/TTL change
+stellar contract invoke \
+  --contract-id "$CONTRACT_ID" \
+  --source-account "$BUYER_IDENTITY" \
+  --network testnet \
+  -- receipt_value --po_id 90 --receipt_id 1
+# => 56
+
+# Only after the buyer confirms the displayed amount:
+stellar contract invoke \
+  --contract-id "$CONTRACT_ID" \
+  --source-account "$BUYER_IDENTITY" \
+  --network testnet \
+  -- accept_receipt_and_settle --po_id 90 --receipt_id 1
+# => 56
+```
+
+### Previews are advisory, not reservations
+
+Submitted receipts do not reserve quantity. When several receipts are
+`Submitted` at once, each preview is computed against the same current accepted
+quantities. `accept_receipt_and_settle` recomputes the payout from live state at
+settlement time. If another receipt settles first and consumes the remaining
+quantity, the stale receipt fails with `QuantityExceedsRemaining` (or a funding
+guard such as `SettlementExceedsFunded`), remains `Submitted`, and leaves token
+balances unchanged because the invocation is atomic. Clients should re-run
+`receipt_value` immediately before requesting buyer approval and present the
+result as an estimate rather than a guaranteed payout.
+
 ## Evidence
 
 The project has 64 host tests, hosted local-ledger proofs for the flagship
