@@ -1,6 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
+};
 
 /// Conservative v0.1 invocation bound. Lines use separate persistent entries;
 /// this cap bounds caller input, duplicate checking, and total calculation.
@@ -235,6 +237,12 @@ impl PoSettlement {
             );
             i += 1;
         }
+        // Keep the event's positional tuple layout explicit for indexers.
+        #[allow(deprecated)]
+        env.events().publish(
+            (Symbol::new(&env, "po_created"), po_id),
+            (header.buyer, header.supplier, total_value),
+        );
         Ok(())
     }
 

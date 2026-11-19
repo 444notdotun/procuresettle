@@ -1,11 +1,11 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{
-        storage::Persistent as _, Address as _, Deployer as _, IssuerFlags, Ledger as _, MockAuth,
-        MockAuthInvoke,
+        storage::Persistent as _, Address as _, Deployer as _, Events as _, IssuerFlags,
+        Ledger as _, MockAuth, MockAuthInvoke,
     },
     token::{StellarAssetClient, TokenClient},
-    Address, Env, IntoVal, Vec,
+    Address, Env, IntoVal, InvokeError, Symbol, Vec,
 };
 
 use crate::{
@@ -339,6 +339,33 @@ fn assert_po_conservation(f: &Fixture, po_id: u64) {
             );
         }
     }
+}
+
+#[test]
+fn create_po_emits_po_created_with_expected_topics_and_data() {
+    let f = fixture();
+    let po_id = 40u64;
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, po_id, &lines);
+
+    let topics = soroban_sdk::vec![
+        &f.env,
+        Symbol::new(&f.env, "po_created").into_val(&f.env),
+        po_id.into_val(&f.env),
+    ];
+    let data = (f.buyer.clone(), f.supplier.clone(), 100_i128).into_val(&f.env);
+    assert_eq!(
+        f.env.events().all(),
+        soroban_sdk::vec![&f.env, (f.contract.clone(), topics, data)],
+    );
+
+    assert_eq!(
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&po_id, &f.buyer, &f.supplier, &f.token, &lines),
+        Err(Ok(crate::PoError::AlreadyExists)),
+    );
+    assert!(f.env.events().all().events().is_empty());
 }
 
 #[test]
@@ -888,15 +915,20 @@ fn funding_before_acceptance_fails_without_moving_tokens_or_state() {
 }
 
 #[test]
-fn unauthorized_actor_cannot_fund_for_recorded_buyer() {
+fn unauthorized_account_cannot_fund_po() {
     let f = fixture();
     let lines = valid_lines(&f.env);
     let admin = StellarAssetClient::new(&f.env, &f.token);
     admin.mock_all_auths().mint(&f.buyer, &500);
     create_and_accept(&f, 62, &lines);
+    let before_po = header(&f, 62);
+    assert_eq!(before_po.status, PoStatus::Accepted);
+    let before_lines = (f.client().get_line(&62, &1), f.client().get_line(&62, &2));
+    let before_supplier = token_balance(&f, &f.supplier);
     let before_buyer = token_balance(&f, &f.buyer);
     let before_contract = token_balance(&f, &f.contract);
     let wrong_actor = Address::generate(&f.env);
+    let before_attacker = token_balance(&f, &wrong_actor);
     let invoke = MockAuthInvoke {
         contract: &f.contract,
         fn_name: "fund_po",
@@ -912,10 +944,26 @@ fn unauthorized_actor_cannot_fund_for_recorded_buyer() {
         }])
         .try_fund_po(&62);
 
-    assert!(result.is_err(), "buyer authorization must be required");
-    let po = header(&f, 62);
-    assert_eq!(po.status, PoStatus::Accepted);
-    assert_eq!(po.funded_value, 0);
+    assert_eq!(result, Err(Err(InvokeError::Abort)));
+    // The SDK's typed client collapses host errors into Abort. Check the
+    // diagnostic event to distinguish missing authorization from other failures.
+    assert!(f.env.host().get_events().unwrap().0.iter().any(|event| {
+        use soroban_sdk::xdr::{ContractEventBody, ScError, ScVal};
+
+        let ContractEventBody::V0(body) = &event.event.body;
+        event.failed_call
+            && body
+                .topics
+                .iter()
+                .any(|topic| matches!(topic, ScVal::Error(ScError::Auth(_))))
+    }));
+    assert_eq!(header(&f, 62), before_po);
+    assert_eq!(
+        (f.client().get_line(&62, &1), f.client().get_line(&62, &2)),
+        before_lines,
+    );
+    assert_eq!(token_balance(&f, &f.supplier), before_supplier);
+    assert_eq!(token_balance(&f, &wrong_actor), before_attacker);
     assert_eq!(token_balance(&f, &f.buyer), before_buyer);
     assert_eq!(token_balance(&f, &f.contract), before_contract);
 }

@@ -73,7 +73,12 @@ documents the LineSettle to ProcureSettle rename without rewriting history.
   an entry and an invocation will require normal ledger restoration first.
 
 See [current limitations and possible future work](docs/LIMITATIONS.md) for
-the full boundary and the gaps that still need evidence.
+the full boundary and the gaps that still need evidence. See the
+[contract error reference](docs/ERRORS.md) for codes and caller actions.
+
+On successful PO creation, the contract emits a `po_created` event with topics
+`(po_created, po_id)` and data `(buyer, supplier, total_value)`. The total uses
+the selected token's base units.
 
 Evidence produced before the product rename retains the historical LineSettle
 name and artifact identity. Evidence produced after the rename uses
