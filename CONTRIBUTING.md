@@ -22,6 +22,27 @@ rustup toolchain install 1.95.0 --profile minimal --component rustfmt
 rustup target add --toolchain 1.95.0 wasm32v1-none
 ```
 
+Install `cargo-audit` for dependency vulnerability checks:
+
+```sh
+cargo install cargo-audit --locked --version 0.23.0
+```
+
+Run the RustSec advisory database check with the repository lockfile:
+
+```sh
+./scripts/security-audit.sh
+```
+
+The script fails on vulnerabilities and warning-severity audit findings. GitHub
+Actions runs the same script on pull requests and weekly.
+
+Advisory exceptions belong in [`.cargo/audit.toml`](.cargo/audit.toml). Each
+entry must explain why it is currently non-applicable or has no compatible
+fixed upgrade. Remove an exception when updating the pinned dependency line
+resolves the advisory. Do not add exceptions without a code or dependency
+review.
+
 Install Stellar CLI 28.1.0 using the [official Stellar CLI installation
 instructions](https://developers.stellar.org/docs/tools/developer-tools/cli/stellar-cli).
 For the cancellation harness dependencies:
