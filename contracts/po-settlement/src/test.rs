@@ -9,7 +9,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    LineInput, PoSettlement, PoSettlementClient, PoStatus, PurchaseOrder, Receipt,
+    LineInput, PoError, PoSettlement, PoSettlementClient, PoStatus, PurchaseOrder, Receipt,
     ReceiptQuantityInput, ReceiptStatus, MAX_LINES, TTL_RENEW_THRESHOLD_LEDGERS,
     TTL_RENEW_TO_LEDGERS,
 };
@@ -2560,4 +2560,80 @@ fn draft_and_unknown_pos_cannot_be_cancelled() {
     assert!(f.client().mock_all_auths().try_cancel_po(&999).is_err());
     assert_eq!(header(&f, 209).status, PoStatus::Draft);
     assert!(f.client().try_get_po(&999).is_err());
+}
+
+#[test]
+fn get_funded_value_lifecycle_and_cancellation() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+
+    // Missing PO returns NotFound
+    assert!(matches!(
+        f.client().try_get_funded_value(&301),
+        Err(Ok(PoError::NotFound))
+    ));
+
+    // Draft state returns 0
+    authorized_create(&f, 301, &lines);
+    assert_eq!(f.client().get_funded_value(&301), 0);
+    assert_eq!(header(&f, 301).status, PoStatus::Draft);
+
+    // Accepted state returns 0
+    authorized_accept(&f, 301);
+    assert_eq!(f.client().get_funded_value(&301), 0);
+    assert_eq!(header(&f, 301).status, PoStatus::Accepted);
+
+    // Funded state returns total_value
+    let admin = StellarAssetClient::new(&f.env, &f.token);
+    admin.mock_all_auths().mint(&f.buyer, &1_000);
+    f.client().mock_all_auths().fund_po(&301);
+    let total_value = header(&f, 301).total_value;
+    assert_eq!(total_value, 100);
+    assert_eq!(f.client().get_funded_value(&301), total_value);
+    assert_eq!(header(&f, 301).status, PoStatus::Funded);
+
+    // Partial settlement: settle receipt of 56
+    let quantities = valid_receipt(&f);
+    authorized_submit(&f, 301, 1, &quantities);
+    let settled = authorized_settle(&f, 301, 1);
+    assert_eq!(settled, 56);
+    assert_eq!(header(&f, 301).paid_value, 56);
+    assert_eq!(f.client().get_funded_value(&301), total_value);
+
+    // Partial cancellation: cancel remaining unspent escrow funds (44 refunded to buyer)
+    authorized_cancel(&f, 301);
+    let po_after_cancel = header(&f, 301);
+    assert_eq!(po_after_cancel.status, PoStatus::Cancelled);
+    assert_eq!(po_after_cancel.funded_value, total_value);
+    assert_eq!(po_after_cancel.paid_value, 56);
+    assert_eq!(po_after_cancel.refunded_value, 44);
+    assert_eq!(
+        po_after_cancel.funded_value - po_after_cancel.paid_value - po_after_cancel.refunded_value,
+        0
+    );
+    assert_eq!(
+        f.client().get_funded_value(&301),
+        po_after_cancel.funded_value
+    );
+}
+
+#[test]
+fn get_funded_value_unfunded_cancel() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    create_and_accept(&f, 302, &lines);
+    authorized_cancel(&f, 302);
+    assert_eq!(header(&f, 302).status, PoStatus::Cancelled);
+    assert_eq!(f.client().get_funded_value(&302), 0);
+}
+
+#[test]
+fn get_funded_value_is_po_scoped() {
+    let f = fixture();
+    funded_flagship(&f, 303);
+    assert_eq!(f.client().get_funded_value(&303), 100);
+    assert!(matches!(
+        f.client().try_get_funded_value(&304),
+        Err(Ok(PoError::NotFound))
+    ));
 }
