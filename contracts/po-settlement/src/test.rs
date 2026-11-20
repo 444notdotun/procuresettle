@@ -9,7 +9,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    LineInput, PoSettlement, PoSettlementClient, PoStatus, PurchaseOrder, Receipt,
+    LineInput, PoError, PoSettlement, PoSettlementClient, PoStatus, PurchaseOrder, Receipt,
     ReceiptQuantityInput, ReceiptStatus, MAX_LINES, TTL_RENEW_THRESHOLD_LEDGERS,
     TTL_RENEW_TO_LEDGERS,
 };
@@ -2560,4 +2560,34 @@ fn draft_and_unknown_pos_cannot_be_cancelled() {
     assert!(f.client().mock_all_auths().try_cancel_po(&999).is_err());
     assert_eq!(header(&f, 209).status, PoStatus::Draft);
     assert!(f.client().try_get_po(&999).is_err());
+}
+
+#[test]
+fn draft_po_cannot_be_mutually_cancelled() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, 210, &lines);
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "cancel_po",
+        args: (210_u64,).into_val(&f.env),
+        sub_invokes: &[],
+    };
+
+    let result = f
+        .client()
+        .mock_auths(&[
+            MockAuth {
+                address: &f.buyer,
+                invoke: &invoke,
+            },
+            MockAuth {
+                address: &f.supplier,
+                invoke: &invoke,
+            },
+        ])
+        .try_cancel_po(&210);
+
+    assert_eq!(result, Err(Ok(PoError::InvalidState)));
+    assert_eq!(header(&f, 210).status, PoStatus::Draft);
 }
