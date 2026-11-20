@@ -2561,3 +2561,37 @@ fn draft_and_unknown_pos_cannot_be_cancelled() {
     assert_eq!(header(&f, 209).status, PoStatus::Draft);
     assert!(f.client().try_get_po(&999).is_err());
 }
+
+#[test]
+fn po_status_helpers_cover_all_states_and_missing_pos() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    let states = [
+        (210, PoStatus::Draft),
+        (211, PoStatus::Accepted),
+        (212, PoStatus::Funded),
+        (213, PoStatus::Closed),
+        (214, PoStatus::Cancelled),
+    ];
+
+    for (po_id, status) in states {
+        authorized_create(&f, po_id, &lines);
+        f.env.as_contract(&f.contract, || {
+            let key = crate::DataKey::Header(po_id);
+            let mut po: PurchaseOrder = f
+                .env
+                .storage()
+                .persistent()
+                .get(&key)
+                .expect("created PO exists");
+            po.status = status.clone();
+            f.env.storage().persistent().set(&key, &po);
+        });
+
+        assert_eq!(f.client().get_po_status(&po_id), status);
+        assert_eq!(f.client().is_po_closed(&po_id), status == PoStatus::Closed);
+    }
+
+    assert!(f.client().try_get_po_status(&999).is_err());
+    assert!(f.client().try_is_po_closed(&999).is_err());
+}
