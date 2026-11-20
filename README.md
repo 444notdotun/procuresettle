@@ -47,7 +47,8 @@ the same SPDX expression, `MIT OR Apache-2.0`.
 ## Contributing and provenance
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for pinned tools, build and test commands,
-proof reproduction, and contribution standards. The [provenance record](docs/PROVENANCE.md)
+proof reproduction, and contribution standards. The [local quickstart guide](docs/QUICKSTART.md)
+covers toolchain installation, checks, and Docker-based local proofs. The [provenance record](docs/PROVENANCE.md)
 documents the LineSettle to ProcureSettle rename without rewriting history.
 
 ## Limits
