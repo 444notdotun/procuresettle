@@ -130,8 +130,8 @@ jobs:
         run: |
           stellar contract build --locked --package procuresettle
           sha256sum target/wasm32v1-none/release/procuresettle.wasm
-          test "$(stat -c '%s' target/wasm32v1-none/release/procuresettle.wasm)" = "25484"
-          test "$(sha256sum target/wasm32v1-none/release/procuresettle.wasm | awk '{print $1}')" = "78b5c6dec22ad1cea497223ff411af544dcd1e9fd613b85514f2c5ae03873a7c"
+          test "$(stat -c '%s' target/wasm32v1-none/release/procuresettle.wasm)" = "25881"
+          test "$(sha256sum target/wasm32v1-none/release/procuresettle.wasm | awk '{print $1}')" = "35abc0c062cc10cc613e017afed9d44de2fe07d125dcac1cf31bfc166a1089bf"
 
       - name: Install pinned proof SDK dependencies
         run: python3 -m pip install --disable-pip-version-check -r requirements-proof.txt
