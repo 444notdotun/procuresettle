@@ -20,6 +20,11 @@ the PO closes automatically. Buyer and supplier may also cancel an Accepted or
 Funded PO together; a Funded PO refunds only its remaining unpaid value to the
 buyer.
 
+## CLI walkthrough
+
+For step-by-step Stellar CLI commands that create and fund a PO, see
+[docs/CLI-WALKTHROUGH.md](docs/CLI-WALKTHROUGH.md).
+
 ## Evidence
 
 The project has 64 host tests, hosted local-ledger proofs for the flagship
@@ -71,6 +76,8 @@ documents the LineSettle to ProcureSettle rename without rewriting history.
   PO, line, receipt, and receipt-line entries to a bounded TTL window. This is
   not permanent storage: after sufficiently long inactivity, Soroban may archive
   an entry and an invocation will require normal ledger restoration first.
+  See [storage TTL and renewal](docs/STORAGE-TTL.md) for the constants, renewal
+  policy, and restoration behavior.
 
 See [current limitations and possible future work](docs/LIMITATIONS.md) for
 the full boundary and the gaps that still need evidence.
