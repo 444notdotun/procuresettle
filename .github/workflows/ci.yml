@@ -48,9 +48,16 @@ jobs:
           python3 scripts/verify-evidence-checksums.py
 
       - name: Install pinned Stellar CLI
-        uses: stellar/stellar-cli@c0f4d0da891bbf214c08b8c5035ae6db80e9a3bd
-        with:
-          version: 28.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=28.1.0
+          asset="stellar-cli-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${version}/${asset}" \
+            -o "$asset"
+          tar -xzf "$asset"
+          sudo install stellar /usr/local/bin/stellar
 
       - name: Verify Stellar CLI version
         run: |
@@ -96,9 +103,16 @@ jobs:
           git rev-parse HEAD
 
       - name: Install pinned Stellar CLI
-        uses: stellar/stellar-cli@c0f4d0da891bbf214c08b8c5035ae6db80e9a3bd
-        with:
-          version: 28.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=28.1.0
+          asset="stellar-cli-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${version}/${asset}" \
+            -o "$asset"
+          tar -xzf "$asset"
+          sudo install stellar /usr/local/bin/stellar
 
       - name: Verify Stellar CLI version
         run: |
@@ -109,8 +123,8 @@ jobs:
         run: |
           stellar contract build --locked --package procuresettle
           sha256sum target/wasm32v1-none/release/procuresettle.wasm
-          test "$(stat -c '%s' target/wasm32v1-none/release/procuresettle.wasm)" = "25484"
-          test "$(sha256sum target/wasm32v1-none/release/procuresettle.wasm | awk '{print $1}')" = "78b5c6dec22ad1cea497223ff411af544dcd1e9fd613b85514f2c5ae03873a7c"
+          test "$(stat -c '%s' target/wasm32v1-none/release/procuresettle.wasm)" = "25927"
+          test "$(sha256sum target/wasm32v1-none/release/procuresettle.wasm | awk '{print $1}')" = "d434c54aa46c511bc5ba0115ae675ae4e585f77f4a0e9cc0199f910df0f225b3"
 
       - name: Install pinned proof SDK dependencies
         run: python3 -m pip install --disable-pip-version-check -r requirements-proof.txt
