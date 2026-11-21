@@ -21,8 +21,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-EXPECTED_WASM_SIZE = 25_484
-EXPECTED_WASM_SHA = "78b5c6dec22ad1cea497223ff411af544dcd1e9fd613b85514f2c5ae03873a7c"
+EXPECTED_WASM_SIZE = 26_289
+EXPECTED_WASM_SHA = "517a91fcfb617c5499503ab91ead2593a9dc9cc4c60a100aa1203343e473cc3f"
 EXPECTED_STALE_ERROR = "HostError: Error(Contract, #14)"  # PoError::QuantityExceedsRemaining
 LINES = [
     {"line_id": 1, "ordered_quantity": 10, "unit_price": "6"},
