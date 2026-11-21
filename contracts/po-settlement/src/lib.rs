@@ -868,6 +868,16 @@ impl PoSettlement {
             .ok_or(PoError::NotFound)
     }
 
+    /// Returns the funded value recorded for the specified purchase order.
+    pub fn get_funded_value(env: Env, po_id: u64) -> Result<i128, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.funded_value)
+            .ok_or(PoError::NotFound)
+    }
+
     /// Reads one stored PO line, including its accepted quantity. No authorization is required.
     ///
     /// # Arguments
