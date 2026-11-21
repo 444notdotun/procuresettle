@@ -1,11 +1,11 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{
-        storage::Persistent as _, Address as _, Deployer as _, IssuerFlags, Ledger as _, MockAuth,
-        MockAuthInvoke,
+        storage::Persistent as _, Address as _, Deployer as _, Events as _, IssuerFlags,
+        Ledger as _, MockAuth, MockAuthInvoke,
     },
     token::{StellarAssetClient, TokenClient},
-    Address, Env, IntoVal, Vec,
+    Address, Env, IntoVal, InvokeError, Symbol, Vec,
 };
 
 use crate::{
@@ -363,6 +363,33 @@ fn assert_po_conservation(f: &Fixture, po_id: u64) {
             );
         }
     }
+}
+
+#[test]
+fn create_po_emits_po_created_with_expected_topics_and_data() {
+    let f = fixture();
+    let po_id = 40u64;
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, po_id, &lines);
+
+    let topics = soroban_sdk::vec![
+        &f.env,
+        Symbol::new(&f.env, "po_created").into_val(&f.env),
+        po_id.into_val(&f.env),
+    ];
+    let data = (f.buyer.clone(), f.supplier.clone(), 100_i128).into_val(&f.env);
+    assert_eq!(
+        f.env.events().all(),
+        soroban_sdk::vec![&f.env, (f.contract.clone(), topics, data)],
+    );
+
+    assert_eq!(
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&po_id, &f.buyer, &f.supplier, &f.token, &lines),
+        Err(Ok(crate::PoError::AlreadyExists)),
+    );
+    assert!(f.env.events().all().events().is_empty());
 }
 
 #[test]
@@ -820,6 +847,77 @@ fn line_count_limit_is_enforced_at_and_above_boundary() {
     assert!(f.client().try_get_line(&52, &1).is_err());
 }
 
+fn generate_n_lines(env: &Env, n: u32) -> Vec<LineInput> {
+    let mut lines = Vec::new(env);
+    let mut i = 0;
+    while i < n {
+        lines.push_back(LineInput {
+            line_id: i + 1,
+            ordered_quantity: 10,
+            unit_price: 5,
+        });
+        i += 1;
+    }
+    lines
+}
+
+#[test]
+fn line_count_boundary_validation_7_8_9() {
+    let f = fixture();
+
+    // 7 lines: below MAX_LINES bound (8) -> succeeds
+    let lines_7 = generate_n_lines(&f.env, 7);
+    f.client()
+        .mock_all_auths()
+        .create_po(&701, &f.buyer, &f.supplier, &f.token, &lines_7);
+    let po_7 = header(&f, 701);
+    assert_eq!(
+        po_7.line_count, 7,
+        "PO with 7 lines should have line_count of 7"
+    );
+    assert_eq!(
+        po_7.total_value,
+        7 * 10 * 5,
+        "PO with 7 lines should calculate correct total value"
+    );
+
+    // 8 lines: exact MAX_LINES boundary -> succeeds
+    let lines_8 = generate_n_lines(&f.env, 8);
+    f.client()
+        .mock_all_auths()
+        .create_po(&702, &f.buyer, &f.supplier, &f.token, &lines_8);
+    let po_8 = header(&f, 702);
+    assert_eq!(
+        po_8.line_count, 8,
+        "PO with 8 lines should have line_count of 8 (MAX_LINES)"
+    );
+    assert_eq!(
+        po_8.total_value,
+        8 * 10 * 5,
+        "PO with 8 lines should calculate correct total value"
+    );
+
+    // 9 lines: above MAX_LINES boundary -> fails with PoError::TooManyLines
+    let lines_9 = generate_n_lines(&f.env, 9);
+    let result_9 =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&703, &f.buyer, &f.supplier, &f.token, &lines_9);
+    assert_eq!(
+        result_9,
+        Err(Ok(PoError::TooManyLines)),
+        "PO with 9 lines must return PoError::TooManyLines"
+    );
+    assert!(
+        f.client().try_get_po(&703).is_err(),
+        "PO with 9 lines must not persist header"
+    );
+    assert!(
+        f.client().try_get_line(&703, &1).is_err(),
+        "PO with 9 lines must not persist line entries"
+    );
+}
+
 #[test]
 fn buyer_cannot_be_its_own_supplier() {
     let f = fixture();
@@ -912,15 +1010,20 @@ fn funding_before_acceptance_fails_without_moving_tokens_or_state() {
 }
 
 #[test]
-fn unauthorized_actor_cannot_fund_for_recorded_buyer() {
+fn unauthorized_account_cannot_fund_po() {
     let f = fixture();
     let lines = valid_lines(&f.env);
     let admin = StellarAssetClient::new(&f.env, &f.token);
     admin.mock_all_auths().mint(&f.buyer, &500);
     create_and_accept(&f, 62, &lines);
+    let before_po = header(&f, 62);
+    assert_eq!(before_po.status, PoStatus::Accepted);
+    let before_lines = (f.client().get_line(&62, &1), f.client().get_line(&62, &2));
+    let before_supplier = token_balance(&f, &f.supplier);
     let before_buyer = token_balance(&f, &f.buyer);
     let before_contract = token_balance(&f, &f.contract);
     let wrong_actor = Address::generate(&f.env);
+    let before_attacker = token_balance(&f, &wrong_actor);
     let invoke = MockAuthInvoke {
         contract: &f.contract,
         fn_name: "fund_po",
@@ -936,10 +1039,26 @@ fn unauthorized_actor_cannot_fund_for_recorded_buyer() {
         }])
         .try_fund_po(&62);
 
-    assert!(result.is_err(), "buyer authorization must be required");
-    let po = header(&f, 62);
-    assert_eq!(po.status, PoStatus::Accepted);
-    assert_eq!(po.funded_value, 0);
+    assert_eq!(result, Err(Err(InvokeError::Abort)));
+    // The SDK's typed client collapses host errors into Abort. Check the
+    // diagnostic event to distinguish missing authorization from other failures.
+    assert!(f.env.host().get_events().unwrap().0.iter().any(|event| {
+        use soroban_sdk::xdr::{ContractEventBody, ScError, ScVal};
+
+        let ContractEventBody::V0(body) = &event.event.body;
+        event.failed_call
+            && body
+                .topics
+                .iter()
+                .any(|topic| matches!(topic, ScVal::Error(ScError::Auth(_))))
+    }));
+    assert_eq!(header(&f, 62), before_po);
+    assert_eq!(
+        (f.client().get_line(&62, &1), f.client().get_line(&62, &2)),
+        before_lines,
+    );
+    assert_eq!(token_balance(&f, &f.supplier), before_supplier);
+    assert_eq!(token_balance(&f, &wrong_actor), before_attacker);
     assert_eq!(token_balance(&f, &f.buyer), before_buyer);
     assert_eq!(token_balance(&f, &f.contract), before_contract);
 }

@@ -21,8 +21,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-EXPECTED_WASM_SIZE = 25_484
-EXPECTED_WASM_SHA = "78b5c6dec22ad1cea497223ff411af544dcd1e9fd613b85514f2c5ae03873a7c"
+EXPECTED_WASM_SIZE = 25_881
+EXPECTED_WASM_SHA = "35abc0c062cc10cc613e017afed9d44de2fe07d125dcac1cf31bfc166a1089bf"
 EXPECTED_STALE_ERROR = "HostError: Error(Contract, #14)"  # PoError::QuantityExceedsRemaining
 LINES = [
     {"line_id": 1, "ordered_quantity": 10, "unit_price": "6"},
@@ -364,7 +364,8 @@ class Proof:
     def run_all(self) -> None:
         size = self.wasm.stat().st_size
         sha = hashlib.sha256(self.wasm.read_bytes()).hexdigest()
-        assert size == EXPECTED_WASM_SIZE and sha == EXPECTED_WASM_SHA
+        if size != self.args.expected_wasm_size or sha != self.args.expected_wasm_sha256:
+            raise RuntimeError(f"unexpected WASM size/hash: {size}/{sha}")
         source = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=self.repo_root,
             text=True, capture_output=True, check=True,
@@ -564,6 +565,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, required=True)
     parser.add_argument("--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm"))
+    parser.add_argument("--expected-wasm-size", type=int, default=EXPECTED_WASM_SIZE)
+    parser.add_argument("--expected-wasm-sha256", default=EXPECTED_WASM_SHA)
     parser.add_argument("--report-dir", type=Path, default=Path(".codex/reports/stage5"))
     parser.add_argument("--issuer-identity", required=True)
     parser.add_argument("--buyer-identity", required=True)
