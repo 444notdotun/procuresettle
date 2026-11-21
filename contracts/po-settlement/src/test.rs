@@ -624,6 +624,25 @@ fn supplier_acceptance_changes_only_status_and_second_acceptance_fails() {
 }
 
 #[test]
+fn accept_nonexistent_po_fails_with_not_found() {
+    let f = fixture();
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "accept_po",
+        args: (9999_u64,).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    let result = f
+        .client()
+        .mock_auths(&[MockAuth {
+            address: &f.supplier,
+            invoke: &invoke,
+        }])
+        .try_accept_po(&9999);
+    assert_eq!(result, Err(Ok(PoError::NotFound)));
+}
+
+#[test]
 fn buyer_cannot_substitute_for_supplier_acceptance() {
     let f = fixture();
     let lines = valid_lines(&f.env);
@@ -701,6 +720,28 @@ fn zero_price_is_rejected() {
             .try_create_po(&46, &f.buyer, &f.supplier, &f.token, &lines);
     assert!(result.is_err());
     assert!(f.client().try_get_po(&46).is_err());
+}
+
+#[test]
+fn negative_unit_price_is_rejected() {
+    let f = fixture();
+    let client = f.client();
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 1,
+            ordered_quantity: 1,
+            unit_price: -100,
+        }
+    ];
+    let result =
+        client
+            .mock_all_auths()
+            .try_create_po(&46, &f.buyer, &f.supplier, &f.token, &lines);
+
+    assert_eq!(result, Err(Ok(PoError::InvalidLine)));
+    assert_eq!(client.try_get_po(&46), Err(Ok(PoError::NotFound)));
+    assert_eq!(client.try_get_line(&46, &1), Err(Ok(PoError::NotFound)));
 }
 
 #[test]
@@ -3048,16 +3089,14 @@ fn cancelled_po_rejects_new_receipt_submission() {
 }
 
 #[test]
-fn cannot_reject_already_settled_receipt() {
+fn settled_receipt_cannot_be_rejected() {
     let f = fixture();
     funded_flagship(&f, 214);
     let quantities = valid_receipt(&f);
     authorized_submit(&f, 214, 1, &quantities);
     assert_eq!(authorized_settle(&f, 214, 1), 56);
-    assert_eq!(
-        f.client().get_receipt(&214, &1).status,
-        ReceiptStatus::Settled
-    );
+    let settled = f.client().get_receipt(&214, &1);
+    assert_eq!(settled.status, ReceiptStatus::Settled);
 
     let invoke = MockAuthInvoke {
         contract: &f.contract,
@@ -3075,8 +3114,5 @@ fn cannot_reject_already_settled_receipt() {
         .try_reject_receipt(&214, &1);
 
     assert_eq!(result, Err(Ok(PoError::InvalidReceiptState)));
-    assert_eq!(
-        f.client().get_receipt(&214, &1).status,
-        ReceiptStatus::Settled
-    );
+    assert_eq!(f.client().get_receipt(&214, &1), settled);
 }
