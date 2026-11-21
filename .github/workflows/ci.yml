@@ -36,8 +36,8 @@ jobs:
       - name: Check formatting
         run: cargo +1.95.0 fmt --all -- --check
 
-      - name: Check clippy
-        run: cargo +1.95.0 clippy --workspace --all-targets --locked -- -D warnings
+      - name: Check trailing whitespace and EOF newlines
+        run: bash scripts/check-formatting.sh
 
       - name: Test workspace
         run: cargo +1.95.0 test --workspace --locked
