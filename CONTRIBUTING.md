@@ -80,6 +80,7 @@ From the repository root:
 cargo +1.95.0 fmt --all -- --check
 cargo +1.95.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.95.0 test --workspace --locked
+git diff --exit-code Cargo.lock
 stellar contract build --locked --package procuresettle
 python3 scripts/verify-evidence-checksums.py
 ```
