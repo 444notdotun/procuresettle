@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-EXPECTED_WASM_SIZE = 26_289
-EXPECTED_WASM_SHA = "517a91fcfb617c5499503ab91ead2593a9dc9cc4c60a100aa1203343e473cc3f"
+EXPECTED_WASM_SIZE = 25_881
+EXPECTED_WASM_SHA = "35abc0c062cc10cc613e017afed9d44de2fe07d125dcac1cf31bfc166a1089bf"
 TX_HASH = re.compile(r"Signing transaction:\s*([0-9a-fA-F]{64})")
 CONTRACT_ID = re.compile(r"\bC[A-Z2-7]{55}\b")
 LINES = [
@@ -368,7 +368,7 @@ class Proof:
     def run_proof(self) -> dict[str, Any]:
         size = self.wasm.stat().st_size
         wasm_sha = hashlib.sha256(self.wasm.read_bytes()).hexdigest()
-        if size != EXPECTED_WASM_SIZE or wasm_sha != EXPECTED_WASM_SHA:
+        if size != self.args.expected_wasm_size or wasm_sha != self.args.expected_wasm_sha256:
             raise RuntimeError(f"unexpected WASM size/hash: {size}/{wasm_sha}")
 
         cli_version, _, _ = self.run(["--version"], read_only=True)
@@ -515,10 +515,75 @@ class Proof:
         }
 
 
+def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str, Any]]:
+    """Describe the invocations `run_proof` would submit, without executing them."""
+    po_id = "runtime_timestamp"
+    return [
+        {"method": "deploy", "source": args.issuer_identity, "wasm": str(wasm)},
+        {
+            "method": "create_po", "po_id": po_id,
+            "buyer": args.buyer_address, "supplier": args.supplier_address,
+            "token": args.sac_id, "lines": LINES,
+        },
+        {"method": "accept_po", "po_id": po_id, "source": args.supplier_identity},
+        {"method": "fund_po", "po_id": po_id, "source": args.buyer_identity},
+        {
+            "method": "submit_receipt", "po_id": po_id, "receipt_id": 1,
+            "quantities": [
+                {"line_id": 1, "quantity_delta": 6},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+            "source": args.supplier_identity,
+        },
+        {
+            "method": "accept_receipt_and_settle", "po_id": po_id,
+            "receipt_id": 1, "source": args.buyer_identity,
+        },
+        {
+            "method": "cancel_po", "po_id": po_id,
+            "signers": [args.buyer_identity],
+            "expected_result": "rejected: supplier authorization absent",
+        },
+        {
+            "method": "cancel_po", "po_id": po_id,
+            "signers": [args.buyer_identity, args.supplier_identity],
+            "expected_result": "settles remaining refund of 44",
+        },
+    ]
+
+
+def dry_run(args: argparse.Namespace) -> int:
+    """Validate local inputs and print the plan without touching Docker or RPC."""
+    config = args.config_dir.resolve()
+    wasm = args.wasm.resolve()
+    problems = []
+    if not config.is_dir():
+        problems.append(f"config dir is missing or not a directory: {config}")
+    if not wasm.is_file():
+        problems.append(f"WASM file is missing or not a regular file: {wasm}")
+    if problems:
+        for problem in problems:
+            print(f"DRY_RUN_ERROR: {problem}", file=sys.stderr)
+        return 1
+    print("PROCURESETTLE_LOCAL_CANCELLATION_PROOF_DRY_RUN")
+    print(json.dumps({
+        "dry_run": True,
+        "transactions_submitted": 0,
+        "config_dir": str(config),
+        "wasm": str(wasm),
+        "report_dir": str(args.report_dir.resolve()),
+        "sac_id": args.sac_id,
+        "planned_transactions": planned_transactions(args, wasm),
+    }, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, required=True)
     parser.add_argument("--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm"))
+    parser.add_argument("--expected-wasm-size", type=int, default=EXPECTED_WASM_SIZE)
+    parser.add_argument("--expected-wasm-sha256", default=EXPECTED_WASM_SHA)
     parser.add_argument("--report-dir", type=Path, default=Path(".codex/reports/cancellation"))
     parser.add_argument("--issuer-identity", required=True)
     parser.add_argument("--buyer-identity", required=True)
@@ -526,7 +591,14 @@ def main() -> int:
     parser.add_argument("--buyer-address", required=True)
     parser.add_argument("--supplier-address", required=True)
     parser.add_argument("--sac-id", required=True)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate --config-dir/--wasm and print planned transactions without network calls",
+    )
     args = parser.parse_args()
+    if args.dry_run:
+        return dry_run(args)
     proof = Proof(args)
     try:
         summary = proof.run_proof()

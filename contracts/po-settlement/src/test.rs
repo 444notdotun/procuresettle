@@ -1,11 +1,11 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{
-        storage::Persistent as _, Address as _, Deployer as _, IssuerFlags, Ledger as _, MockAuth,
-        MockAuthInvoke,
+        storage::Persistent as _, Address as _, Deployer as _, Events as _, IssuerFlags,
+        Ledger as _, MockAuth, MockAuthInvoke,
     },
     token::{StellarAssetClient, TokenClient},
-    Address, Env, IntoVal, Vec,
+    Address, Env, IntoVal, InvokeError, Symbol, Vec,
 };
 
 use crate::{
@@ -363,6 +363,33 @@ fn assert_po_conservation(f: &Fixture, po_id: u64) {
             );
         }
     }
+}
+
+#[test]
+fn create_po_emits_po_created_with_expected_topics_and_data() {
+    let f = fixture();
+    let po_id = 40u64;
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, po_id, &lines);
+
+    let topics = soroban_sdk::vec![
+        &f.env,
+        Symbol::new(&f.env, "po_created").into_val(&f.env),
+        po_id.into_val(&f.env),
+    ];
+    let data = (f.buyer.clone(), f.supplier.clone(), 100_i128).into_val(&f.env);
+    assert_eq!(
+        f.env.events().all(),
+        soroban_sdk::vec![&f.env, (f.contract.clone(), topics, data)],
+    );
+
+    assert_eq!(
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&po_id, &f.buyer, &f.supplier, &f.token, &lines),
+        Err(Ok(crate::PoError::AlreadyExists)),
+    );
+    assert!(f.env.events().all().events().is_empty());
 }
 
 #[test]
@@ -820,6 +847,77 @@ fn line_count_limit_is_enforced_at_and_above_boundary() {
     assert!(f.client().try_get_line(&52, &1).is_err());
 }
 
+fn generate_n_lines(env: &Env, n: u32) -> Vec<LineInput> {
+    let mut lines = Vec::new(env);
+    let mut i = 0;
+    while i < n {
+        lines.push_back(LineInput {
+            line_id: i + 1,
+            ordered_quantity: 10,
+            unit_price: 5,
+        });
+        i += 1;
+    }
+    lines
+}
+
+#[test]
+fn line_count_boundary_validation_7_8_9() {
+    let f = fixture();
+
+    // 7 lines: below MAX_LINES bound (8) -> succeeds
+    let lines_7 = generate_n_lines(&f.env, 7);
+    f.client()
+        .mock_all_auths()
+        .create_po(&701, &f.buyer, &f.supplier, &f.token, &lines_7);
+    let po_7 = header(&f, 701);
+    assert_eq!(
+        po_7.line_count, 7,
+        "PO with 7 lines should have line_count of 7"
+    );
+    assert_eq!(
+        po_7.total_value,
+        7 * 10 * 5,
+        "PO with 7 lines should calculate correct total value"
+    );
+
+    // 8 lines: exact MAX_LINES boundary -> succeeds
+    let lines_8 = generate_n_lines(&f.env, 8);
+    f.client()
+        .mock_all_auths()
+        .create_po(&702, &f.buyer, &f.supplier, &f.token, &lines_8);
+    let po_8 = header(&f, 702);
+    assert_eq!(
+        po_8.line_count, 8,
+        "PO with 8 lines should have line_count of 8 (MAX_LINES)"
+    );
+    assert_eq!(
+        po_8.total_value,
+        8 * 10 * 5,
+        "PO with 8 lines should calculate correct total value"
+    );
+
+    // 9 lines: above MAX_LINES boundary -> fails with PoError::TooManyLines
+    let lines_9 = generate_n_lines(&f.env, 9);
+    let result_9 =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&703, &f.buyer, &f.supplier, &f.token, &lines_9);
+    assert_eq!(
+        result_9,
+        Err(Ok(PoError::TooManyLines)),
+        "PO with 9 lines must return PoError::TooManyLines"
+    );
+    assert!(
+        f.client().try_get_po(&703).is_err(),
+        "PO with 9 lines must not persist header"
+    );
+    assert!(
+        f.client().try_get_line(&703, &1).is_err(),
+        "PO with 9 lines must not persist line entries"
+    );
+}
+
 #[test]
 fn buyer_cannot_be_its_own_supplier() {
     let f = fixture();
@@ -857,6 +955,45 @@ fn zero_po_and_line_ids_are_rejected() {
             .try_create_po(&0, &f.buyer, &f.supplier, &f.token, &valid);
     assert!(po_result.is_err());
     assert!(f.client().try_get_po(&0).is_err());
+}
+
+#[test]
+fn po_id_zero_returns_invalid_po_id() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    let result =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&0, &f.buyer, &f.supplier, &f.token, &lines);
+    assert_eq!(result, Err(Ok(PoError::InvalidPoId)));
+    assert!(f.client().try_get_po(&0).is_err());
+}
+
+#[test]
+fn line_id_zero_returns_invalid_line() {
+    let f = fixture();
+    let po_id = 54;
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 1,
+            ordered_quantity: 10,
+            unit_price: 6,
+        },
+        LineInput {
+            line_id: 0,
+            ordered_quantity: 5,
+            unit_price: 10,
+        },
+    ];
+    let result =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&po_id, &f.buyer, &f.supplier, &f.token, &lines);
+    assert_eq!(result, Err(Ok(PoError::InvalidLine)));
+    assert!(f.client().try_get_po(&po_id).is_err());
+    assert!(f.client().try_get_line(&po_id, &0).is_err());
+    assert!(f.client().try_get_line(&po_id, &1).is_err());
 }
 
 #[test]
@@ -912,15 +1049,20 @@ fn funding_before_acceptance_fails_without_moving_tokens_or_state() {
 }
 
 #[test]
-fn unauthorized_actor_cannot_fund_for_recorded_buyer() {
+fn unauthorized_account_cannot_fund_po() {
     let f = fixture();
     let lines = valid_lines(&f.env);
     let admin = StellarAssetClient::new(&f.env, &f.token);
     admin.mock_all_auths().mint(&f.buyer, &500);
     create_and_accept(&f, 62, &lines);
+    let before_po = header(&f, 62);
+    assert_eq!(before_po.status, PoStatus::Accepted);
+    let before_lines = (f.client().get_line(&62, &1), f.client().get_line(&62, &2));
+    let before_supplier = token_balance(&f, &f.supplier);
     let before_buyer = token_balance(&f, &f.buyer);
     let before_contract = token_balance(&f, &f.contract);
     let wrong_actor = Address::generate(&f.env);
+    let before_attacker = token_balance(&f, &wrong_actor);
     let invoke = MockAuthInvoke {
         contract: &f.contract,
         fn_name: "fund_po",
@@ -936,10 +1078,26 @@ fn unauthorized_actor_cannot_fund_for_recorded_buyer() {
         }])
         .try_fund_po(&62);
 
-    assert!(result.is_err(), "buyer authorization must be required");
-    let po = header(&f, 62);
-    assert_eq!(po.status, PoStatus::Accepted);
-    assert_eq!(po.funded_value, 0);
+    assert_eq!(result, Err(Err(InvokeError::Abort)));
+    // The SDK's typed client collapses host errors into Abort. Check the
+    // diagnostic event to distinguish missing authorization from other failures.
+    assert!(f.env.host().get_events().unwrap().0.iter().any(|event| {
+        use soroban_sdk::xdr::{ContractEventBody, ScError, ScVal};
+
+        let ContractEventBody::V0(body) = &event.event.body;
+        event.failed_call
+            && body
+                .topics
+                .iter()
+                .any(|topic| matches!(topic, ScVal::Error(ScError::Auth(_))))
+    }));
+    assert_eq!(header(&f, 62), before_po);
+    assert_eq!(
+        (f.client().get_line(&62, &1), f.client().get_line(&62, &2)),
+        before_lines,
+    );
+    assert_eq!(token_balance(&f, &f.supplier), before_supplier);
+    assert_eq!(token_balance(&f, &wrong_actor), before_attacker);
     assert_eq!(token_balance(&f, &f.buyer), before_buyer);
     assert_eq!(token_balance(&f, &f.contract), before_contract);
 }
@@ -1162,18 +1320,29 @@ fn receipt_ids_are_scoped_per_po() {
 }
 
 #[test]
-fn empty_receipt_is_rejected_without_persistence() {
+fn empty_receipt_quantities_vector_is_rejected() {
     let f = fixture();
     funded_flagship(&f, 77);
     let quantities = Vec::<ReceiptQuantityInput>::new(&f.env);
-
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "submit_receipt",
+        args: (77_u64, 1_u64, quantities.clone()).into_val(&f.env),
+        sub_invokes: &[],
+    };
     let result = f
         .client()
-        .mock_all_auths()
+        .mock_auths(&[MockAuth {
+            address: &f.supplier,
+            invoke: &invoke,
+        }])
         .try_submit_receipt(&77, &1, &quantities);
 
-    assert!(result.is_err());
-    assert!(f.client().try_get_receipt(&77, &1).is_err());
+    assert_eq!(result, Err(Ok(PoError::InvalidReceipt)));
+    assert_eq!(
+        f.client().try_get_receipt(&77, &1),
+        Err(Ok(PoError::ReceiptNotFound))
+    );
 }
 
 #[test]
@@ -1495,6 +1664,38 @@ fn receipt_preflight_is_read_only() {
     assert_eq!(token_balance(&f, &f.buyer), buyer_before);
     assert_eq!(token_balance(&f, &f.supplier), supplier_before);
     assert_eq!(token_balance(&f, &f.contract), contract_before);
+}
+
+#[test]
+fn receipt_value_on_settled_receipt_returns_historical_amount() {
+    let f = fixture();
+    let client = f.client();
+    let po_id = 87;
+    let receipt_id = 1;
+    funded_flagship(&f, po_id);
+    authorized_submit(&f, po_id, receipt_id, &valid_receipt(&f));
+    assert_eq!(authorized_settle(&f, po_id, receipt_id), 56);
+    assert_eq!(
+        client.get_receipt(&po_id, &receipt_id).status,
+        ReceiptStatus::Settled
+    );
+
+    let state = || {
+        (
+            client.get_po(&po_id),
+            client.get_receipt(&po_id, &receipt_id),
+            [1, 2].map(|id| {
+                (
+                    client.get_line(&po_id, &id),
+                    client.get_receipt_line(&po_id, &receipt_id, &id),
+                )
+            }),
+            [&f.buyer, &f.supplier, &f.contract].map(|address| token_balance(&f, address)),
+        )
+    };
+    let before = state();
+    assert_eq!(client.receipt_value(&po_id, &receipt_id), 56);
+    assert_eq!(state(), before);
 }
 
 #[test]
@@ -2629,6 +2830,123 @@ fn cancellation_state_and_conservation_are_isolated_per_po_with_shared_token() {
     assert_eq!(token_balance(&f, &f.contract), 100);
     assert_po_conservation(&f, 207);
     assert_po_conservation(&f, 208);
+}
+
+#[test]
+fn three_sequential_partial_receipts_reach_closed_state() {
+    let f = fixture();
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 1,
+            ordered_quantity: 10,
+            unit_price: 6,
+        },
+        LineInput {
+            line_id: 2,
+            ordered_quantity: 20,
+            unit_price: 5,
+        },
+    ];
+    create_funded_po(&f, 210, &lines);
+    let initial_buyer = token_balance(&f, &f.buyer);
+    let initial_supplier = token_balance(&f, &f.supplier);
+    let initial_contract = token_balance(&f, &f.contract);
+    let funded = header(&f, 210);
+    assert_eq!(funded.status, PoStatus::Funded);
+    assert_eq!(funded.total_value, 160);
+    assert_eq!(funded.funded_value, 160);
+    assert_eq!(funded.paid_value, 0);
+
+    let r1 = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 5,
+        },
+    ];
+    authorized_submit(&f, 210, 1, &r1);
+    assert_eq!(authorized_settle(&f, 210, 1), 30);
+    assert_eq!(f.client().get_line(&210, &1).accepted_quantity, 5);
+    assert_eq!(f.client().get_line(&210, &2).accepted_quantity, 0);
+    let after_r1 = header(&f, 210);
+    assert_eq!(after_r1.status, PoStatus::Funded);
+    assert_eq!(after_r1.paid_value, 30);
+    assert_eq!(
+        f.client().get_receipt(&210, &1).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(token_balance(&f, &f.buyer), initial_buyer);
+    assert_eq!(token_balance(&f, &f.supplier), initial_supplier + 30);
+    assert_eq!(token_balance(&f, &f.contract), initial_contract - 30);
+
+    let r2 = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 5,
+        },
+        ReceiptQuantityInput {
+            line_id: 2,
+            quantity_delta: 10,
+        },
+    ];
+    authorized_submit(&f, 210, 2, &r2);
+    assert_eq!(authorized_settle(&f, 210, 2), 80);
+    assert_eq!(f.client().get_line(&210, &1).accepted_quantity, 10);
+    assert_eq!(f.client().get_line(&210, &2).accepted_quantity, 10);
+    let after_r2 = header(&f, 210);
+    assert_eq!(after_r2.status, PoStatus::Funded);
+    assert_eq!(after_r2.paid_value, 110);
+    assert_eq!(
+        f.client().get_receipt(&210, &2).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(token_balance(&f, &f.buyer), initial_buyer);
+    assert_eq!(token_balance(&f, &f.supplier), initial_supplier + 110);
+    assert_eq!(token_balance(&f, &f.contract), initial_contract - 110);
+
+    let r3 = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 2,
+            quantity_delta: 10,
+        },
+    ];
+    authorized_submit(&f, 210, 3, &r3);
+    assert_eq!(authorized_settle(&f, 210, 3), 50);
+    assert_eq!(f.client().get_line(&210, &1).accepted_quantity, 10);
+    assert_eq!(f.client().get_line(&210, &2).accepted_quantity, 20);
+    let closed = header(&f, 210);
+    assert_eq!(closed.status, PoStatus::Closed);
+    assert_eq!(closed.total_value, 160);
+    assert_eq!(closed.funded_value, 160);
+    assert_eq!(closed.paid_value, 160);
+    assert_eq!(closed.refunded_value, 0);
+    assert_eq!(
+        f.client().get_receipt(&210, &3).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(token_balance(&f, &f.buyer), initial_buyer);
+    assert_eq!(token_balance(&f, &f.supplier), initial_supplier + 160);
+    assert_eq!(token_balance(&f, &f.contract), initial_contract - 160);
+    assert_eq!(independently_calculate_accepted_value(&f, 210), 160);
+    assert_po_conservation(&f, 210);
+}
+
+#[test]
+fn querying_unknown_line_id_returns_not_found() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, 211, &lines);
+
+    let result = f.client().try_get_line(&211, &99);
+    assert!(
+        matches!(result, Err(Ok(PoError::NotFound))),
+        "expected PoError::NotFound for line 99, got {result:?}"
+    );
+    assert_eq!(f.client().get_line(&211, &1).ordered_quantity, 10);
+    assert_eq!(f.client().get_line(&211, &2).ordered_quantity, 8);
 }
 
 #[test]

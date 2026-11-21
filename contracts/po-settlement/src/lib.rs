@@ -1,6 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
+};
 
 /// Conservative v0.1 invocation bound. Lines use separate persistent entries;
 /// this cap bounds caller input, duplicate checking, and total calculation.
@@ -133,6 +135,36 @@ pub struct PoSettlement;
 
 #[contractimpl]
 impl PoSettlement {
+    /// Creates a new purchase order in `Draft` status with ordered quantities and prices.
+    ///
+    /// The buyer must authorize the call. Every line and the derived total are validated
+    /// before any header or line entry is written. `total_value` is the checked sum of
+    /// `ordered_quantity * unit_price` across all lines and is expressed in the token's
+    /// integer base units.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Caller-supplied unique PO identifier; must be non-zero and unused.
+    /// * `buyer` - Party that funds the PO and accepts receipts; must authorize this call.
+    /// * `supplier` - Party that accepts the PO, submits receipts, and receives settlement.
+    /// * `token` - SEP-41 token address whose base units are used for funding and settlement.
+    /// * `lines` - One to [`MAX_LINES`] line inputs. Each line needs a non-zero unique
+    ///   `line_id`, a non-zero `ordered_quantity`, and a strictly positive `unit_price`.
+    ///
+    /// # Errors
+    /// * [`PoError::InvalidPoId`] - `po_id` is zero.
+    /// * [`PoError::InvalidParties`] - `buyer` equals `supplier`.
+    /// * [`PoError::AlreadyExists`] - a header for `po_id` already exists.
+    /// * [`PoError::InvalidLine`] - `lines` is empty, a line has a zero id, a zero quantity,
+    ///   or a non-positive price, or an input cannot be read from the environment.
+    /// * [`PoError::TooManyLines`] - `lines` contains more than [`MAX_LINES`] entries.
+    /// * [`PoError::DuplicateLineId`] - two lines share the same `line_id`.
+    /// * [`PoError::ArithmeticOverflow`] - line or total arithmetic overflows, or the derived
+    ///   total is non-positive.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if `buyer.require_auth()` fails.
     pub fn create_po(
         env: Env,
         po_id: u64,
@@ -235,9 +267,31 @@ impl PoSettlement {
             );
             i += 1;
         }
+        // Keep the event's positional tuple layout explicit for indexers.
+        #[allow(deprecated)]
+        env.events().publish(
+            (Symbol::new(&env, "po_created"), po_id),
+            (header.buyer, header.supplier, total_value),
+        );
         Ok(())
     }
 
+    /// Accepts a `Draft` PO and transitions it to `Accepted` after supplier authorization.
+    ///
+    /// Only the recorded supplier may accept, and only while the PO is still `Draft`.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of an existing PO in `Draft` status.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header (or no PO record needed for TTL renewal) exists.
+    /// * [`PoError::InvalidState`] - the PO is not in `Draft` status.
+    /// * [`PoError::InvalidLine`] - a bounded line id from the header cannot be read.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if `supplier.require_auth()` fails.
     pub fn accept_po(env: Env, po_id: u64) -> Result<(), PoError> {
         extend_contract_ttl(&env);
         let key = DataKey::Header(po_id);
@@ -257,6 +311,25 @@ impl PoSettlement {
     }
 
     /// Funds an accepted PO for its exact stored total from its recorded buyer.
+    ///
+    /// Transfers `total_value` of the stored token from the buyer to this contract, then
+    /// records `funded_value` and transitions the PO to `Funded`. Funding state is written
+    /// only after the token transfer succeeds; invocation atomicity reverts both effects on
+    /// failure.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of an existing PO in `Accepted` status that is not yet funded.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header (or no PO record needed for TTL renewal) exists.
+    /// * [`PoError::InvalidState`] - the PO is not `Accepted` or already holds funding.
+    /// * [`PoError::InvalidLine`] - a bounded line id from the header cannot be read.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if `buyer.require_auth()` fails or the token transfer traps, for example on
+    /// insufficient balance or allowance.
     pub fn fund_po(env: Env, po_id: u64) -> Result<(), PoError> {
         extend_contract_ttl(&env);
         let key = DataKey::Header(po_id);
@@ -287,6 +360,34 @@ impl PoSettlement {
     }
 
     /// Records the supplier's asserted quantity deltas for a funded PO.
+    ///
+    /// Every delta is checked against the line's current remaining quantity at submission
+    /// time and must reference a line belonging to the PO. All inputs are validated before
+    /// any receipt or receipt-line entry is written. The new receipt starts as `Submitted`.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of an existing PO in `Funded` status.
+    /// * `receipt_id` - Caller-supplied unique receipt id; must be non-zero and unused for this
+    ///   PO. Rejecting a receipt does not release its identifier for reuse.
+    /// * `quantities` - One to `line_count` deltas. Each needs a non-zero line id that exists
+    ///   on the PO, a non-zero `quantity_delta` within that line's remaining quantity, and no
+    ///   duplicate line ids.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header (or no PO record needed for TTL renewal) exists.
+    /// * [`PoError::InvalidState`] - the PO is not in `Funded` status.
+    /// * [`PoError::InvalidReceipt`] - `receipt_id` is zero, `quantities` is empty or longer
+    ///   than the PO's line count, a line id or delta is zero, or an input cannot be read.
+    /// * [`PoError::ReceiptAlreadyExists`] - a receipt with this id already exists for the PO.
+    /// * [`PoError::UnknownPoLine`] - a referenced line does not exist on the PO.
+    /// * [`PoError::QuantityExceedsRemaining`] - a delta exceeds the line's remaining quantity.
+    /// * [`PoError::DuplicateReceiptLine`] - the same line id appears more than once.
+    /// * [`PoError::InvalidLine`] - a bounded line id from the header cannot be read.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if `supplier.require_auth()` fails.
     pub fn submit_receipt(
         env: Env,
         po_id: u64,
@@ -384,6 +485,26 @@ impl PoSettlement {
     }
 
     /// Buyer rejects a supplier assertion. Receipt identity remains consumed.
+    ///
+    /// Marks a `Submitted` receipt as `Rejected`. Rejected receipts can no longer be valued
+    /// or settled, and their `receipt_id` cannot be reused for another receipt on the PO.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of the PO that owns the receipt.
+    /// * `receipt_id` - Identifier of a submitted receipt for that PO.
+    ///
+    /// # Errors
+    /// * [`PoError::ReceiptNotFound`] - the receipt, or one of its indexed receipt lines
+    ///   needed for TTL renewal, does not exist.
+    /// * [`PoError::InvalidReceiptState`] - the receipt is not in `Submitted` status.
+    /// * [`PoError::NotFound`] - no header (or no PO record needed for TTL renewal) exists.
+    /// * [`PoError::InvalidLine`] - a bounded line id from the header cannot be read.
+    /// * [`PoError::InvalidReceipt`] - a bounded receipt line id cannot be read.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if `buyer.require_auth()` fails.
     pub fn reject_receipt(env: Env, po_id: u64, receipt_id: u64) -> Result<(), PoError> {
         extend_contract_ttl(&env);
         let key = DataKey::Receipt(po_id, receipt_id);
@@ -409,6 +530,31 @@ impl PoSettlement {
     }
 
     /// Read-only calculation for a submitted receipt, rechecking current PO quantities.
+    ///
+    /// Returns the checked sum of each `quantity_delta * current unit_price`. For a
+    /// `Submitted` receipt, deltas are rechecked against the line's currently remaining
+    /// quantity; for a `Settled` receipt the immutable deltas and terms are re-derived
+    /// without that bound check. The value is advisory for `Submitted` receipts because
+    /// another receipt may settle first. No authorization is required.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of the PO that owns the receipt.
+    /// * `receipt_id` - Identifier of a submitted or settled receipt for that PO.
+    ///
+    /// # Errors
+    /// * [`PoError::ReceiptNotFound`] - the receipt or one of its receipt lines does not exist.
+    /// * [`PoError::InvalidReceiptState`] - the receipt is in `Rejected` status.
+    /// * [`PoError::InvalidReceipt`] - a stored delta is zero, an indexed line id cannot be
+    ///   read, or the computed value is non-positive.
+    /// * [`PoError::UnknownPoLine`] - a referenced PO line does not exist.
+    /// * [`PoError::QuantityExceedsRemaining`] - a submitted delta exceeds the line's current
+    ///   remaining quantity.
+    /// * [`PoError::ArithmeticOverflow`] - value multiplication or summation overflows.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. An archived contract instance must be
+    /// restored through normal Soroban ledger restoration before it can be read.
     pub fn receipt_value(env: Env, po_id: u64, receipt_id: u64) -> Result<i128, PoError> {
         extend_contract_ttl(&env);
         let receipt: Receipt = env
@@ -431,6 +577,40 @@ impl PoSettlement {
 
     /// Atomically accepts the current submitted quantities and pays their
     /// quantity-derived value to the supplier recorded on the PO.
+    ///
+    /// The buyer must authorize the call. The settlement is recomputed from current accepted
+    /// quantities rather than an earlier advisory preview, each line's `accepted_quantity` is
+    /// advanced, and the accepted value is checked against cumulative `paid_value` before the
+    /// exact derived amount is transferred. When every ordered quantity is accepted the PO
+    /// closes automatically. State is written before the token transfer; invocation atomicity
+    /// reverts it if the transfer fails. Returns the settled value in token base units.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of a `Funded` PO whose full stored total has been transferred in.
+    /// * `receipt_id` - Identifier of a `Submitted` receipt for that PO.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header, PO line, or record needed for TTL renewal exists.
+    /// * [`PoError::InvalidState`] - the PO is not fully funded, the accepted value does not
+    ///   match `paid_value`, or full fulfillment conflicts with the recorded totals.
+    /// * [`PoError::ReceiptNotFound`] - the receipt or one of its receipt-line entries does not
+    ///   exist.
+    /// * [`PoError::InvalidReceiptState`] - the receipt is not in `Submitted` status.
+    /// * [`PoError::InvalidReceipt`] - a stored delta is zero or an indexed line id cannot be
+    ///   read.
+    /// * [`PoError::UnknownPoLine`] - a referenced PO line does not exist.
+    /// * [`PoError::QuantityExceedsRemaining`] - a delta exceeds the line's current remaining
+    ///   quantity or the next accepted quantity exceeds the ordered quantity.
+    /// * [`PoError::ArithmeticOverflow`] - paid value, accepted quantity, or receipt value
+    ///   arithmetic overflows.
+    /// * [`PoError::SettlementExceedsFunded`] - the computed settlement is non-positive or
+    ///   cumulative paid value would exceed the funded or total value.
+    /// * [`PoError::InvalidLine`] - a bounded line id from the header cannot be read.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if `buyer.require_auth()` fails or the token transfer traps.
     pub fn accept_receipt_and_settle(
         env: Env,
         po_id: u64,
@@ -534,6 +714,29 @@ impl PoSettlement {
 
     /// Cancels an Accepted or Funded PO only with authorization from both
     /// recorded parties. A funded PO refunds only its unpaid, unrefunded value.
+    ///
+    /// An `Accepted` PO is cancelled without any transfer. A `Funded` PO refunds
+    /// `funded_value - paid_value - refunded_value` to the buyer and records it in
+    /// `refunded_value`. Cancellation is rejected if the stored accounting is inconsistent.
+    /// State is written before the outgoing transfer; invocation atomicity reverts it if the
+    /// transfer fails.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of an existing PO in `Accepted` or `Funded` status.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header (or no PO record needed for TTL renewal) exists.
+    /// * [`PoError::InvalidState`] - the PO is not `Accepted` or `Funded`, its funding or
+    ///   payment invariants fail, or no positive refund remains for a funded PO.
+    /// * [`PoError::ArithmeticOverflow`] - refund, refunded value, or accounted value
+    ///   arithmetic overflows.
+    /// * [`PoError::InvalidLine`] - a bounded line id from the header cannot be read.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. The Soroban host aborts the invocation
+    /// if either `buyer.require_auth()` or `supplier.require_auth()` fails, or if the token
+    /// transfer traps.
     pub fn cancel_po(env: Env, po_id: u64) -> Result<(), PoError> {
         extend_contract_ttl(&env);
         let key = DataKey::Header(po_id);
@@ -604,6 +807,19 @@ impl PoSettlement {
         Ok(())
     }
 
+    /// Reads the stored receipt header for a PO and receipt id. No authorization is required.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of the PO that owns the receipt.
+    /// * `receipt_id` - Identifier of the receipt to read.
+    ///
+    /// # Errors
+    /// * [`PoError::ReceiptNotFound`] - no receipt is stored for the given ids.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. An archived contract instance must be
+    /// restored through normal Soroban ledger restoration before it can be read.
     pub fn get_receipt(env: Env, po_id: u64, receipt_id: u64) -> Result<Receipt, PoError> {
         extend_contract_ttl(&env);
         env.storage()
@@ -612,6 +828,21 @@ impl PoSettlement {
             .ok_or(PoError::ReceiptNotFound)
     }
 
+    /// Reads one stored receipt-line delta by PO, receipt, and line id. No authorization is
+    /// required.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of the PO that owns the receipt.
+    /// * `receipt_id` - Identifier of the receipt that owns the line.
+    /// * `line_id` - Identifier of the line whose delta is read.
+    ///
+    /// # Errors
+    /// * [`PoError::ReceiptNotFound`] - no receipt line is stored for the given ids.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. An archived contract instance must be
+    /// restored through normal Soroban ledger restoration before it can be read.
     pub fn get_receipt_line(
         env: Env,
         po_id: u64,
@@ -625,6 +856,18 @@ impl PoSettlement {
             .ok_or(PoError::ReceiptNotFound)
     }
 
+    /// Reads the stored purchase-order header for `po_id`. No authorization is required.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of the PO to read.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header is stored for `po_id`.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. An archived contract instance must be
+    /// restored through normal Soroban ledger restoration before it can be read.
     pub fn get_po(env: Env, po_id: u64) -> Result<PurchaseOrder, PoError> {
         extend_contract_ttl(&env);
         env.storage()
@@ -633,22 +876,29 @@ impl PoSettlement {
             .ok_or(PoError::NotFound)
     }
 
-    pub fn get_po_status(env: Env, po_id: u64) -> Result<PoStatus, PoError> {
+    /// Returns the funded value recorded for the specified purchase order.
+    pub fn get_funded_value(env: Env, po_id: u64) -> Result<i128, PoError> {
+        extend_contract_ttl(&env);
         env.storage()
             .persistent()
             .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
-            .map(|header| header.status)
+            .map(|po| po.funded_value)
             .ok_or(PoError::NotFound)
     }
 
-    pub fn is_po_closed(env: Env, po_id: u64) -> Result<bool, PoError> {
-        env.storage()
-            .persistent()
-            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
-            .map(|header| header.status == PoStatus::Closed)
-            .ok_or(PoError::NotFound)
-    }
-
+    /// Reads one stored PO line, including its accepted quantity. No authorization is required.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `po_id` - Identifier of the PO that owns the line.
+    /// * `line_id` - Identifier of the line to read.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no PO line is stored for the given ids.
+    ///
+    /// # Panics
+    /// This function contains no panicking operations. An archived contract instance must be
+    /// restored through normal Soroban ledger restoration before it can be read.
     pub fn get_line(env: Env, po_id: u64, line_id: u32) -> Result<PoLine, PoError> {
         extend_contract_ttl(&env);
         env.storage()
