@@ -455,6 +455,111 @@ class Proof:
         print(json.dumps({"verdict": "PASS", "report": str(self.log_path), **final_summary}, indent=2))
 
 
+def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str, Any]]:
+    """Describe the invocations `run_all` would submit, without executing them."""
+    plan: list[dict[str, Any]] = [
+        {"method": "deploy", "source": args.issuer_identity, "wasm": str(wasm)}
+    ]
+
+    def add_po(flow: str, po_id: str) -> None:
+        plan.append({
+            "method": "create_po", "flow": flow, "po_id": po_id,
+            "buyer": args.buyer_address, "supplier": args.supplier_address,
+            "token": args.sac_id, "lines": LINES,
+        })
+        plan.append({
+            "method": "accept_po", "flow": flow, "po_id": po_id,
+            "source": args.supplier_identity,
+        })
+        plan.append({
+            "method": "fund_po", "flow": flow, "po_id": po_id,
+            "source": args.buyer_identity,
+        })
+
+    def add_receipt(
+        flow: str,
+        po_id: str,
+        receipt_id: int,
+        quantities: list[dict[str, int]],
+        expected_contract_error: str | None = None,
+    ) -> None:
+        plan.append({
+            "method": "submit_receipt", "flow": flow, "po_id": po_id,
+            "receipt_id": receipt_id, "quantities": quantities,
+            "source": args.supplier_identity,
+        })
+        settle: dict[str, Any] = {
+            "method": "accept_receipt_and_settle", "flow": flow, "po_id": po_id,
+            "receipt_id": receipt_id, "source": args.buyer_identity,
+        }
+        if expected_contract_error:
+            settle["expected_contract_error"] = expected_contract_error
+        plan.append(settle)
+
+    add_po("control", "po_base")
+    add_receipt("control", "po_base", 1, [
+        {"line_id": 1, "quantity_delta": 6},
+        {"line_id": 2, "quantity_delta": 4},
+    ])
+    add_receipt("control", "po_base", 2, [
+        {"line_id": 1, "quantity_delta": 4},
+        {"line_id": 2, "quantity_delta": 4},
+    ])
+    add_po("changed_quantity", "po_base+1")
+    add_receipt("changed_quantity", "po_base+1", 1, [
+        {"line_id": 1, "quantity_delta": 5},
+        {"line_id": 2, "quantity_delta": 4},
+    ])
+    add_po("stale_rejection", "po_base+2")
+    add_receipt("stale_rejection", "po_base+2", 1, [
+        {"line_id": 1, "quantity_delta": 6},
+        {"line_id": 2, "quantity_delta": 4},
+    ])
+    add_receipt(
+        "stale_rejection", "po_base+2", 2,
+        [{"line_id": 1, "quantity_delta": 5}, {"line_id": 2, "quantity_delta": 1}],
+        expected_contract_error=EXPECTED_STALE_ERROR,
+    )
+    for run_number in range(1, 4):
+        flow = f"repeat_run_{run_number}"
+        add_po(flow, "1")
+        add_receipt(flow, "1", 1, [
+            {"line_id": 1, "quantity_delta": 6},
+            {"line_id": 2, "quantity_delta": 4},
+        ])
+        add_receipt(flow, "1", 2, [
+            {"line_id": 1, "quantity_delta": 4},
+            {"line_id": 2, "quantity_delta": 4},
+        ])
+    return plan
+
+
+def dry_run(args: argparse.Namespace) -> int:
+    """Validate local inputs and print the plan without touching Docker or RPC."""
+    config = args.config_dir.resolve()
+    wasm = args.wasm.resolve()
+    problems = []
+    if not config.is_dir():
+        problems.append(f"config dir is missing or not a directory: {config}")
+    if not wasm.is_file():
+        problems.append(f"WASM file is missing or not a regular file: {wasm}")
+    if problems:
+        for problem in problems:
+            print(f"DRY_RUN_ERROR: {problem}", file=sys.stderr)
+        return 1
+    print("PROCURESETTLE_LOCAL_FLAGSHIP_PROOF_DRY_RUN")
+    print(json.dumps({
+        "dry_run": True,
+        "transactions_submitted": 0,
+        "config_dir": str(config),
+        "wasm": str(wasm),
+        "report_dir": str(args.report_dir.resolve()),
+        "sac_id": args.sac_id,
+        "planned_transactions": planned_transactions(args, wasm),
+    }, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, required=True)
@@ -466,7 +571,14 @@ def main() -> int:
     parser.add_argument("--supplier-identity", required=True)
     parser.add_argument("--supplier-address", required=True)
     parser.add_argument("--sac-id", required=True)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate --config-dir/--wasm and print planned transactions without network calls",
+    )
     args = parser.parse_args()
+    if args.dry_run:
+        return dry_run(args)
     proof = Proof(args)
     try:
         proof.run_all()

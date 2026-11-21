@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import re
 import sys
@@ -14,7 +15,21 @@ EVIDENCE = (ROOT / "evidence").resolve()
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Verify every committed evidence bundle's SHA256SUMS file."
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print expected and computed SHA-256 digests when a checksum mismatch occurs.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     checksum_files = sorted(EVIDENCE.glob("*/SHA256SUMS"))
     if not checksum_files:
         print("No evidence checksum files found", file=sys.stderr)
@@ -63,8 +78,22 @@ def main() -> int:
                     f"{target.relative_to(ROOT)}: FAILED checksum mismatch",
                     file=sys.stderr,
                 )
+                if args.verbose:
+                    print(
+                        f"  File:            {target.relative_to(ROOT)}",
+                        file=sys.stderr,
+                    )
+                    print(
+                        f"  Manifest:        {checksum_file.relative_to(ROOT)}:{line_number}",
+                        file=sys.stderr,
+                    )
+                    print(f"  Expected SHA256: {parts[0]}", file=sys.stderr)
+                    print(f"  Computed SHA256: {actual}", file=sys.stderr)
                 return 1
-            print(f"{target.relative_to(ROOT)}: OK")
+            if args.verbose:
+                print(f"{target.relative_to(ROOT)}: OK ({actual})")
+            else:
+                print(f"{target.relative_to(ROOT)}: OK")
             listed_files.add(target)
             checked += 1
             bundle_checked += 1
