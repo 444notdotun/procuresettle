@@ -95,6 +95,14 @@ guard such as `SettlementExceedsFunded`), remains `Submitted`, and leaves token
 balances unchanged because the invocation is atomic. Clients should re-run
 `receipt_value` immediately before requesting buyer approval and present the
 result as an estimate rather than a guaranteed payout.
+
+## Architecture and specifications
+
+- [Data model specification](docs/DATA-MODEL.md): Persistent storage layout, `DataKey` definitions, struct fields, and deserialization cost bounds.
+- [State machine reference](docs/STATE-MACHINE.md): Unambiguous transition matrix, required authorizations, terminal states, and rejected transitions for `PoStatus` and `ReceiptStatus`.
+- [Storage TTL and renewal](docs/STORAGE-TTL.md): TTL constants, bump-on-access policy, and ledger archival behavior.
+- [Contract error reference](docs/ERRORS.md): Complete table of `PoError` codes, root causes, and recommended caller actions.
+
 ## CLI walkthrough
 
 For step-by-step Stellar CLI commands that create and fund a PO, see
