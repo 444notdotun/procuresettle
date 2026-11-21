@@ -28,7 +28,8 @@ the repository. A possible future direction is not an implemented capability.
   line, receipt, and receipt-line entries to a bounded target TTL. Renewal
   depends on activity and does not make storage permanent. Long-inactive data
   can be archived and may need normal ledger restoration before access. See
-  [`docs/STORAGE-TTL.md`](STORAGE-TTL.md) for the constants and renewal policy.
+  [`docs/STORAGE-TTL.md`](STORAGE-TTL.md) for the constants, renewal policy, and
+  restoration behavior.
 - **Cancellation evidence:** joint cancellation and remaining-value refund are
   demonstrated in a protocol-28 standalone local-ledger proof. This is local
   execution evidence, not a public Testnet or Mainnet cancellation proof.
