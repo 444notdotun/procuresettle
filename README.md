@@ -95,6 +95,10 @@ guard such as `SettlementExceedsFunded`), remains `Submitted`, and leaves token
 balances unchanged because the invocation is atomic. Clients should re-run
 `receipt_value` immediately before requesting buyer approval and present the
 result as an estimate rather than a guaranteed payout.
+## CLI walkthrough
+
+For step-by-step Stellar CLI commands that create and fund a PO, see
+[docs/CLI-WALKTHROUGH.md](docs/CLI-WALKTHROUGH.md).
 
 ## Evidence
 

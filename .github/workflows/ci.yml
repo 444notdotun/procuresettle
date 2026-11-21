@@ -29,12 +29,15 @@ jobs:
 
       - name: Install pinned Rust and WASM target
         run: |
-          rustup toolchain install 1.95.0 --profile minimal --component rustfmt
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
           rustup target add --toolchain 1.95.0 wasm32v1-none
           rustc +1.95.0 --version
 
       - name: Check formatting
         run: cargo +1.95.0 fmt --all -- --check
+
+      - name: Check clippy
+        run: cargo +1.95.0 clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test workspace
         run: cargo +1.95.0 test --workspace --locked
