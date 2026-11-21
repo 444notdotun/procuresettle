@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-EXPECTED_WASM_SIZE = 25_484
-EXPECTED_WASM_SHA = "78b5c6dec22ad1cea497223ff411af544dcd1e9fd613b85514f2c5ae03873a7c"
+EXPECTED_WASM_SIZE = 25_881
+EXPECTED_WASM_SHA = "35abc0c062cc10cc613e017afed9d44de2fe07d125dcac1cf31bfc166a1089bf"
 TX_HASH = re.compile(r"Signing transaction:\s*([0-9a-fA-F]{64})")
 CONTRACT_ID = re.compile(r"\bC[A-Z2-7]{55}\b")
 LINES = [
