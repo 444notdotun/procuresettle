@@ -3208,3 +3208,58 @@ fn settled_receipt_cannot_be_rejected() {
     assert_eq!(result, Err(Ok(PoError::InvalidReceiptState)));
     assert_eq!(f.client().get_receipt(&214, &1), settled);
 }
+
+#[test]
+fn receipt_value_for_nonexistent_receipt_returns_not_found() {
+    let f = fixture();
+    create_and_accept(&f, 300, &valid_lines(&f.env));
+    let po_before = header(&f, 300);
+    let balances_before = (
+        token_balance(&f, &f.buyer),
+        token_balance(&f, &f.supplier),
+        token_balance(&f, &f.contract),
+    );
+
+    assert_eq!(
+        f.client().try_receipt_value(&300, &404),
+        Err(Ok(PoError::ReceiptNotFound)),
+        "unknown receipt 404 must be NotFound before funding"
+    );
+    assert_eq!(header(&f, 300), po_before);
+    assert_eq!(
+        (
+            token_balance(&f, &f.buyer),
+            token_balance(&f, &f.supplier),
+            token_balance(&f, &f.contract),
+        ),
+        balances_before,
+        "pre-funding lookup must not mutate PO or balances"
+    );
+
+    StellarAssetClient::new(&f.env, &f.token)
+        .mock_all_auths()
+        .mint(&f.buyer, &100);
+    f.client().mock_all_auths().fund_po(&300);
+
+    let funded_po = header(&f, 300);
+    let funded_balances = (
+        token_balance(&f, &f.buyer),
+        token_balance(&f, &f.supplier),
+        token_balance(&f, &f.contract),
+    );
+    assert_eq!(
+        f.client().try_receipt_value(&300, &404),
+        Err(Ok(PoError::ReceiptNotFound)),
+        "unknown receipt 404 must be NotFound after funding"
+    );
+    assert_eq!(header(&f, 300), funded_po);
+    assert_eq!(
+        (
+            token_balance(&f, &f.buyer),
+            token_balance(&f, &f.supplier),
+            token_balance(&f, &f.contract),
+        ),
+        funded_balances,
+        "funded lookup must not mutate PO status or balances"
+    );
+}
