@@ -368,7 +368,7 @@ class Proof:
     def run_proof(self) -> dict[str, Any]:
         size = self.wasm.stat().st_size
         wasm_sha = hashlib.sha256(self.wasm.read_bytes()).hexdigest()
-        if size != EXPECTED_WASM_SIZE or wasm_sha != EXPECTED_WASM_SHA:
+        if size != self.args.expected_wasm_size or wasm_sha != self.args.expected_wasm_sha256:
             raise RuntimeError(f"unexpected WASM size/hash: {size}/{wasm_sha}")
 
         cli_version, _, _ = self.run(["--version"], read_only=True)
@@ -582,6 +582,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, required=True)
     parser.add_argument("--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm"))
+    parser.add_argument("--expected-wasm-size", type=int, default=EXPECTED_WASM_SIZE)
+    parser.add_argument("--expected-wasm-sha256", default=EXPECTED_WASM_SHA)
     parser.add_argument("--report-dir", type=Path, default=Path(".codex/reports/cancellation"))
     parser.add_argument("--issuer-identity", required=True)
     parser.add_argument("--buyer-identity", required=True)
