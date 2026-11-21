@@ -3037,3 +3037,49 @@ fn cannot_reject_already_settled_receipt() {
         ReceiptStatus::Settled
     );
 }
+
+#[test]
+fn duplicate_line_in_receipt_input_is_rejected() {
+    let f = fixture();
+    funded_flagship(&f, 215);
+    let duplicate = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 2,
+        },
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 3,
+        },
+    ];
+
+    let result = f
+        .client()
+        .mock_all_auths()
+        .try_submit_receipt(&215, &1, &duplicate);
+
+    assert_eq!(
+        result,
+        Err(Ok(PoError::DuplicateReceiptLine)),
+        "duplicate line IDs in one receipt must be rejected"
+    );
+    assert!(
+        f.client().try_get_receipt(&215, &1).is_err(),
+        "duplicate submission must not persist a receipt"
+    );
+    assert!(
+        f.client().try_get_receipt_line(&215, &1, &1).is_err(),
+        "duplicate submission must not persist receipt lines"
+    );
+    assert_eq!(f.client().get_line(&215, &1).accepted_quantity, 0);
+    assert_eq!(f.client().get_line(&215, &2).accepted_quantity, 0);
+
+    let valid = valid_receipt(&f);
+    authorized_submit(&f, 215, 1, &valid);
+    assert_eq!(
+        f.client().get_receipt(&215, &1).receipt_id,
+        1,
+        "failed duplicate submission must leave receipt ID 1 available"
+    );
+}
