@@ -267,6 +267,30 @@ fn funded_flagship(f: &Fixture, po_id: u64) {
     create_funded_po(f, po_id, &lines);
 }
 
+fn assert_settlement_unchanged(
+    f: &Fixture,
+    po_id: u64,
+    receipt_id: u64,
+    po_before: PurchaseOrder,
+    balances_before: (i128, i128, i128),
+) {
+    assert_eq!(
+        f.client().get_receipt(&po_id, &receipt_id).status,
+        ReceiptStatus::Submitted
+    );
+    assert_eq!(header(f, po_id), po_before);
+    assert_eq!(f.client().get_line(&po_id, &1).accepted_quantity, 0);
+    assert_eq!(f.client().get_line(&po_id, &2).accepted_quantity, 0);
+    assert_eq!(
+        (
+            token_balance(f, &f.buyer),
+            token_balance(f, &f.supplier),
+            token_balance(f, &f.contract)
+        ),
+        balances_before
+    );
+}
+
 fn authorized_cancel(f: &Fixture, po_id: u64) {
     let invoke = MockAuthInvoke {
         contract: &f.contract,
@@ -1715,6 +1739,62 @@ fn only_recorded_buyer_can_settle_and_rejected_receipt_cannot_settle() {
         ),
         balances_before
     );
+}
+
+#[test]
+fn only_recorded_buyer_can_trigger_settlement() {
+    let f = fixture();
+    funded_flagship(&f, 210);
+    let quantities = valid_receipt(&f);
+    authorized_submit(&f, 210, 1, &quantities);
+    let po_before = header(&f, 210);
+    let balances_before = (
+        token_balance(&f, &f.buyer),
+        token_balance(&f, &f.supplier),
+        token_balance(&f, &f.contract),
+    );
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "accept_receipt_and_settle",
+        args: (210u64, 1u64).into_val(&f.env),
+        sub_invokes: &[],
+    };
+
+    let supplier_result = f
+        .client()
+        .mock_auths(&[MockAuth {
+            address: &f.supplier,
+            invoke: &invoke,
+        }])
+        .try_accept_receipt_and_settle(&210, &1);
+    assert!(
+        matches!(supplier_result, Err(Err(_))),
+        "supplier cannot satisfy buyer authorization"
+    );
+    assert_settlement_unchanged(&f, 210, 1, po_before.clone(), balances_before);
+
+    let third_party = Address::generate(&f.env);
+    let third_party_result = f
+        .client()
+        .mock_auths(&[MockAuth {
+            address: &third_party,
+            invoke: &invoke,
+        }])
+        .try_accept_receipt_and_settle(&210, &1);
+    assert!(
+        matches!(third_party_result, Err(Err(_))),
+        "third party cannot satisfy buyer authorization"
+    );
+    assert_settlement_unchanged(&f, 210, 1, po_before, balances_before);
+
+    assert_eq!(authorized_settle(&f, 210, 1), 56);
+    assert_eq!(
+        f.client().get_receipt(&210, &1).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(header(&f, 210).paid_value, 56);
+    assert_eq!(token_balance(&f, &f.supplier), balances_before.1 + 56);
+    assert_eq!(token_balance(&f, &f.contract), balances_before.2 - 56);
 }
 
 #[test]
