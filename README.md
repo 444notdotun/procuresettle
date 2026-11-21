@@ -76,6 +76,8 @@ documents the LineSettle to ProcureSettle rename without rewriting history.
   PO, line, receipt, and receipt-line entries to a bounded TTL window. This is
   not permanent storage: after sufficiently long inactivity, Soroban may archive
   an entry and an invocation will require normal ledger restoration first.
+  See [storage TTL and renewal](docs/STORAGE-TTL.md) for the constants, renewal
+  policy, and restoration behavior.
 
 See [current limitations and possible future work](docs/LIMITATIONS.md) for
 the full boundary and the gaps that still need evidence.
