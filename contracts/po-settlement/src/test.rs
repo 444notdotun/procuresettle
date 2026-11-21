@@ -958,6 +958,45 @@ fn zero_po_and_line_ids_are_rejected() {
 }
 
 #[test]
+fn po_id_zero_returns_invalid_po_id() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    let result =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&0, &f.buyer, &f.supplier, &f.token, &lines);
+    assert_eq!(result, Err(Ok(PoError::InvalidPoId)));
+    assert!(f.client().try_get_po(&0).is_err());
+}
+
+#[test]
+fn line_id_zero_returns_invalid_line() {
+    let f = fixture();
+    let po_id = 54;
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 1,
+            ordered_quantity: 10,
+            unit_price: 6,
+        },
+        LineInput {
+            line_id: 0,
+            ordered_quantity: 5,
+            unit_price: 10,
+        },
+    ];
+    let result =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&po_id, &f.buyer, &f.supplier, &f.token, &lines);
+    assert_eq!(result, Err(Ok(PoError::InvalidLine)));
+    assert!(f.client().try_get_po(&po_id).is_err());
+    assert!(f.client().try_get_line(&po_id, &0).is_err());
+    assert!(f.client().try_get_line(&po_id, &1).is_err());
+}
+
+#[test]
 fn successful_funding_transfers_exact_stored_total_and_preserves_terms() {
     let f = fixture();
     let lines = valid_lines(&f.env);
@@ -1281,18 +1320,29 @@ fn receipt_ids_are_scoped_per_po() {
 }
 
 #[test]
-fn empty_receipt_is_rejected_without_persistence() {
+fn empty_receipt_quantities_vector_is_rejected() {
     let f = fixture();
     funded_flagship(&f, 77);
     let quantities = Vec::<ReceiptQuantityInput>::new(&f.env);
-
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "submit_receipt",
+        args: (77_u64, 1_u64, quantities.clone()).into_val(&f.env),
+        sub_invokes: &[],
+    };
     let result = f
         .client()
-        .mock_all_auths()
+        .mock_auths(&[MockAuth {
+            address: &f.supplier,
+            invoke: &invoke,
+        }])
         .try_submit_receipt(&77, &1, &quantities);
 
-    assert!(result.is_err());
-    assert!(f.client().try_get_receipt(&77, &1).is_err());
+    assert_eq!(result, Err(Ok(PoError::InvalidReceipt)));
+    assert_eq!(
+        f.client().try_get_receipt(&77, &1),
+        Err(Ok(PoError::ReceiptNotFound))
+    );
 }
 
 #[test]
@@ -1655,6 +1705,38 @@ fn get_receipt_status_returns_submitted_rejected_and_settled() {
         f.client().get_receipt_status(&211, &1),
         ReceiptStatus::Rejected
     );
+}
+
+#[test]
+fn receipt_value_on_settled_receipt_returns_historical_amount() {
+    let f = fixture();
+    let client = f.client();
+    let po_id = 87;
+    let receipt_id = 1;
+    funded_flagship(&f, po_id);
+    authorized_submit(&f, po_id, receipt_id, &valid_receipt(&f));
+    assert_eq!(authorized_settle(&f, po_id, receipt_id), 56);
+    assert_eq!(
+        client.get_receipt(&po_id, &receipt_id).status,
+        ReceiptStatus::Settled
+    );
+
+    let state = || {
+        (
+            client.get_po(&po_id),
+            client.get_receipt(&po_id, &receipt_id),
+            [1, 2].map(|id| {
+                (
+                    client.get_line(&po_id, &id),
+                    client.get_receipt_line(&po_id, &receipt_id, &id),
+                )
+            }),
+            [&f.buyer, &f.supplier, &f.contract].map(|address| token_balance(&f, address)),
+        )
+    };
+    let before = state();
+    assert_eq!(client.receipt_value(&po_id, &receipt_id), 56);
+    assert_eq!(state(), before);
 }
 
 #[test]
