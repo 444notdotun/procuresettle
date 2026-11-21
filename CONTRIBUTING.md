@@ -81,6 +81,7 @@ cargo +1.95.0 fmt --all -- --check
 bash scripts/check-formatting.sh
 cargo +1.95.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.95.0 test --workspace --locked
+git diff --exit-code Cargo.lock
 stellar contract build --locked --package procuresettle
 python3 scripts/verify-evidence-checksums.py
 ```
@@ -93,6 +94,62 @@ The lockfile is committed; keep `--locked` in validation commands. Add tests
 for behavior changes, including boundary and failure cases. A passing host test
 does not establish ledger execution or network behavior. Do not weaken existing
 assertions to make a change pass.
+
+## Testing guidelines
+
+The host tests are in `contracts/po-settlement/src/test.rs`. They run in-process
+with the SDK's `testutils` feature, so no network, ledger, or Docker is involved.
+
+**Environment and authorization.** `fixture()` builds a fresh `Env`, generates
+buyer, supplier, and issuer addresses with `Address::generate`, registers a
+Stellar Asset Contract as the token with `register_stellar_asset_contract_v2`,
+and registers the contract with `env.register(PoSettlement, ())`. Every test
+starts from its own fixture, so tests share no state. Ledger settings such as
+TTL are changed through `env.ledger()` (see
+`fixture_with_current_network_ttl_params`).
+
+Authorization is mocked, not skipped. The `authorized_*` helpers use
+`mock_auths` with `MockAuth` and `MockAuthInvoke` to authorize one address for
+one function call and its exact arguments, so a test fails if the wrong party
+would have had to sign. Use `mock_auths` when who signs is the behavior under
+test, for example `cancellation_requires_buyer_and_supplier_authorization`. Use
+`mock_all_auths()` for setup steps such as minting and funding in
+`create_funded_po`, or when the test is about a state or validation failure
+rather than authorization.
+
+**Verifying token transfers.** The contract moves a Stellar Asset Contract
+token through `TokenClient`. Tests mint to the buyer with `StellarAssetClient`
+and read balances with the `token_balance` helper, which wraps
+`TokenClient::balance`, for the buyer, the supplier, and the contract itself,
+before and after each step. Assert exact amounts: funding moves the stored PO
+total from the buyer to the contract, settlement pays the supplier the accepted
+quantity times the stored unit price, and cancellation refunds only the unpaid
+remainder.
+
+Calculate expected values independently of the contract.
+`independently_calculate_receipt_value` and
+`independently_calculate_accepted_value` recompute amounts from raw stored
+records without calling production helpers, and `assert_po_conservation` checks
+that paid and funded values stay consistent. Prefer literal expected numbers or
+these oracles over reusing the code under test.
+
+**Failure cases.** Rejected calls use the generated `try_` client methods and
+assert `is_err()`. Then assert that PO, receipt, and token state are unchanged,
+as in the tests named `..._without_partial_state` and `..._rolls_back_...`. An
+error alone does not show that the failed call left nothing behind.
+
+**SDK snapshots and `cargo insta accept`.** Running the tests makes
+`soroban-sdk` write a JSON snapshot of each test's environment to
+`contracts/po-settlement/test_snapshots/`. These files are generated output,
+ignored by Git (`**/test_snapshots/` in `.gitignore`), and must not be
+committed. The project does not use `insta`: no committed snapshot files exist,
+so there is no `cargo insta accept` step, and expected behavior is stated in
+explicit assertions. If a future change adds `insta` snapshots, treat them as
+verified behavioral invariants. Run `cargo insta accept` only after reading the
+diff and confirming the new output is the behavior you intended, never just to
+make an unexpected failure pass. An unexpected failure means fixing the code or
+the test, not accepting the snapshot, in line with the rule above against
+weakening assertions.
 
 ## Reproduce the local flagship proof
 
