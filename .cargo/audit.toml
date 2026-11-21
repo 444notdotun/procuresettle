@@ -1,0 +1,24 @@
+[advisories]
+ignore = [
+    # Brought in by the pinned soroban-env-host 28.0.2 host-test dependency.
+    # The contract's wasm build does not call the vulnerable timing-sensitive
+    # elliptic-curve operations.
+    "RUSTSEC-2026-0387",
+
+    # Brought in by stellar-strkey 0.0.16 from the pinned Soroban SDK 28.0.0.
+    # These heapless 0.8 defects are outside the strkey containers used here,
+    # and heapless 0.9 is not accepted by this SDK dependency line.
+    "RUSTSEC-2026-0574",
+    "RUSTSEC-2026-0575",
+    "RUSTSEC-2026-0576",
+    "RUSTSEC-2026-0577",
+    "RUSTSEC-2026-0578",
+    "RUSTSEC-2026-0579",
+    "RUSTSEC-2026-0580",
+    "RUSTSEC-2026-0581",
+    "RUSTSEC-2026-0582",
+
+    # Proc-macro and host-only transitive dependencies with no fixed upgrade.
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0543",
+]
