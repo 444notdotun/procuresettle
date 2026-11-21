@@ -1281,18 +1281,29 @@ fn receipt_ids_are_scoped_per_po() {
 }
 
 #[test]
-fn empty_receipt_is_rejected_without_persistence() {
+fn empty_receipt_quantities_vector_is_rejected() {
     let f = fixture();
     funded_flagship(&f, 77);
     let quantities = Vec::<ReceiptQuantityInput>::new(&f.env);
-
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "submit_receipt",
+        args: (77_u64, 1_u64, quantities.clone()).into_val(&f.env),
+        sub_invokes: &[],
+    };
     let result = f
         .client()
-        .mock_all_auths()
+        .mock_auths(&[MockAuth {
+            address: &f.supplier,
+            invoke: &invoke,
+        }])
         .try_submit_receipt(&77, &1, &quantities);
 
-    assert!(result.is_err());
-    assert!(f.client().try_get_receipt(&77, &1).is_err());
+    assert_eq!(result, Err(Ok(PoError::InvalidReceipt)));
+    assert_eq!(
+        f.client().try_get_receipt(&77, &1),
+        Err(Ok(PoError::ReceiptNotFound))
+    );
 }
 
 #[test]
@@ -1614,6 +1625,38 @@ fn receipt_preflight_is_read_only() {
     assert_eq!(token_balance(&f, &f.buyer), buyer_before);
     assert_eq!(token_balance(&f, &f.supplier), supplier_before);
     assert_eq!(token_balance(&f, &f.contract), contract_before);
+}
+
+#[test]
+fn receipt_value_on_settled_receipt_returns_historical_amount() {
+    let f = fixture();
+    let client = f.client();
+    let po_id = 87;
+    let receipt_id = 1;
+    funded_flagship(&f, po_id);
+    authorized_submit(&f, po_id, receipt_id, &valid_receipt(&f));
+    assert_eq!(authorized_settle(&f, po_id, receipt_id), 56);
+    assert_eq!(
+        client.get_receipt(&po_id, &receipt_id).status,
+        ReceiptStatus::Settled
+    );
+
+    let state = || {
+        (
+            client.get_po(&po_id),
+            client.get_receipt(&po_id, &receipt_id),
+            [1, 2].map(|id| {
+                (
+                    client.get_line(&po_id, &id),
+                    client.get_receipt_line(&po_id, &receipt_id, &id),
+                )
+            }),
+            [&f.buyer, &f.supplier, &f.contract].map(|address| token_balance(&f, address)),
+        )
+    };
+    let before = state();
+    assert_eq!(client.receipt_value(&po_id, &receipt_id), 56);
+    assert_eq!(state(), before);
 }
 
 #[test]
