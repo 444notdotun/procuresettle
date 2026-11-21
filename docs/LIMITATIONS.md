@@ -40,6 +40,8 @@ the repository. A possible future direction is not an implemented capability.
 - **Security:** the repository evidence is not a third-party security audit or
   a production readiness assessment.
 
+See the [contract error reference](ERRORS.md) for failure codes and caller actions.
+
 ## Possible future directions
 
 These are evaluation opportunities, not committed scope:
