@@ -415,6 +415,35 @@ fn valid_po_creation_derives_total_and_stores_terms() {
 }
 
 #[test]
+fn po_metadata_getters_return_stored_values() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, 42, &lines);
+
+    assert_eq!(f.client().get_po_line_count(&42), 2);
+    assert_eq!(f.client().get_po_supplier(&42), f.supplier);
+    assert_eq!(f.client().get_po_token(&42), f.token);
+}
+
+#[test]
+fn po_metadata_getters_return_not_found_for_unknown_ids() {
+    let f = fixture();
+
+    assert_eq!(
+        f.client().try_get_po_line_count(&999),
+        Err(Ok(PoError::NotFound))
+    );
+    assert_eq!(
+        f.client().try_get_po_supplier(&999),
+        Err(Ok(PoError::NotFound))
+    );
+    assert_eq!(
+        f.client().try_get_po_token(&999),
+        Err(Ok(PoError::NotFound))
+    );
+}
+
+#[test]
 fn ttl_policy_covers_full_lifecycle_beyond_default_boundary_and_rebumps() {
     let (f, sdk_default_persistent_ttl) = fixture_with_current_network_ttl_params();
     let lines = valid_lines(&f.env);
