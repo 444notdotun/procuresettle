@@ -47,6 +47,24 @@ jobs:
           python3 -m py_compile scripts/*.py
           python3 scripts/verify-evidence-checksums.py
 
+      - name: Dry-run proof scripts
+        run: |
+          set -euo pipefail
+          scratch=$(mktemp -d)
+          trap 'rm -rf "$scratch"' EXIT
+          mkdir -p "$scratch/config"
+          : > "$scratch/procuresettle.wasm"
+          for script in local-flagship-proof local-cancellation-proof; do
+            python3 "scripts/$script.py" --dry-run \
+              --config-dir "$scratch/config" \
+              --wasm "$scratch/procuresettle.wasm" \
+              --report-dir "$scratch/reports" \
+              --issuer-identity issuer \
+              --buyer-identity buyer --buyer-address GBUYER \
+              --supplier-identity supplier --supplier-address GSUPPLIER \
+              --sac-id CSAC
+          done
+
       - name: Install pinned Stellar CLI
         uses: stellar/stellar-cli@c0f4d0da891bbf214c08b8c5035ae6db80e9a3bd
         with:

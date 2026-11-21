@@ -2632,6 +2632,123 @@ fn cancellation_state_and_conservation_are_isolated_per_po_with_shared_token() {
 }
 
 #[test]
+fn three_sequential_partial_receipts_reach_closed_state() {
+    let f = fixture();
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 1,
+            ordered_quantity: 10,
+            unit_price: 6,
+        },
+        LineInput {
+            line_id: 2,
+            ordered_quantity: 20,
+            unit_price: 5,
+        },
+    ];
+    create_funded_po(&f, 210, &lines);
+    let initial_buyer = token_balance(&f, &f.buyer);
+    let initial_supplier = token_balance(&f, &f.supplier);
+    let initial_contract = token_balance(&f, &f.contract);
+    let funded = header(&f, 210);
+    assert_eq!(funded.status, PoStatus::Funded);
+    assert_eq!(funded.total_value, 160);
+    assert_eq!(funded.funded_value, 160);
+    assert_eq!(funded.paid_value, 0);
+
+    let r1 = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 5,
+        },
+    ];
+    authorized_submit(&f, 210, 1, &r1);
+    assert_eq!(authorized_settle(&f, 210, 1), 30);
+    assert_eq!(f.client().get_line(&210, &1).accepted_quantity, 5);
+    assert_eq!(f.client().get_line(&210, &2).accepted_quantity, 0);
+    let after_r1 = header(&f, 210);
+    assert_eq!(after_r1.status, PoStatus::Funded);
+    assert_eq!(after_r1.paid_value, 30);
+    assert_eq!(
+        f.client().get_receipt(&210, &1).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(token_balance(&f, &f.buyer), initial_buyer);
+    assert_eq!(token_balance(&f, &f.supplier), initial_supplier + 30);
+    assert_eq!(token_balance(&f, &f.contract), initial_contract - 30);
+
+    let r2 = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 1,
+            quantity_delta: 5,
+        },
+        ReceiptQuantityInput {
+            line_id: 2,
+            quantity_delta: 10,
+        },
+    ];
+    authorized_submit(&f, 210, 2, &r2);
+    assert_eq!(authorized_settle(&f, 210, 2), 80);
+    assert_eq!(f.client().get_line(&210, &1).accepted_quantity, 10);
+    assert_eq!(f.client().get_line(&210, &2).accepted_quantity, 10);
+    let after_r2 = header(&f, 210);
+    assert_eq!(after_r2.status, PoStatus::Funded);
+    assert_eq!(after_r2.paid_value, 110);
+    assert_eq!(
+        f.client().get_receipt(&210, &2).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(token_balance(&f, &f.buyer), initial_buyer);
+    assert_eq!(token_balance(&f, &f.supplier), initial_supplier + 110);
+    assert_eq!(token_balance(&f, &f.contract), initial_contract - 110);
+
+    let r3 = soroban_sdk::vec![
+        &f.env,
+        ReceiptQuantityInput {
+            line_id: 2,
+            quantity_delta: 10,
+        },
+    ];
+    authorized_submit(&f, 210, 3, &r3);
+    assert_eq!(authorized_settle(&f, 210, 3), 50);
+    assert_eq!(f.client().get_line(&210, &1).accepted_quantity, 10);
+    assert_eq!(f.client().get_line(&210, &2).accepted_quantity, 20);
+    let closed = header(&f, 210);
+    assert_eq!(closed.status, PoStatus::Closed);
+    assert_eq!(closed.total_value, 160);
+    assert_eq!(closed.funded_value, 160);
+    assert_eq!(closed.paid_value, 160);
+    assert_eq!(closed.refunded_value, 0);
+    assert_eq!(
+        f.client().get_receipt(&210, &3).status,
+        ReceiptStatus::Settled
+    );
+    assert_eq!(token_balance(&f, &f.buyer), initial_buyer);
+    assert_eq!(token_balance(&f, &f.supplier), initial_supplier + 160);
+    assert_eq!(token_balance(&f, &f.contract), initial_contract - 160);
+    assert_eq!(independently_calculate_accepted_value(&f, 210), 160);
+    assert_po_conservation(&f, 210);
+}
+
+#[test]
+fn querying_unknown_line_id_returns_not_found() {
+    let f = fixture();
+    let lines = valid_lines(&f.env);
+    authorized_create(&f, 211, &lines);
+
+    let result = f.client().try_get_line(&211, &99);
+    assert!(
+        matches!(result, Err(Ok(PoError::NotFound))),
+        "expected PoError::NotFound for line 99, got {result:?}"
+    );
+    assert_eq!(f.client().get_line(&211, &1).ordered_quantity, 10);
+    assert_eq!(f.client().get_line(&211, &2).ordered_quantity, 8);
+}
+
+#[test]
 fn draft_and_unknown_pos_cannot_be_cancelled() {
     let f = fixture();
     let lines = valid_lines(&f.env);
