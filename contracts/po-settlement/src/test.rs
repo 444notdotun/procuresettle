@@ -820,6 +820,77 @@ fn line_count_limit_is_enforced_at_and_above_boundary() {
     assert!(f.client().try_get_line(&52, &1).is_err());
 }
 
+fn generate_n_lines(env: &Env, n: u32) -> Vec<LineInput> {
+    let mut lines = Vec::new(env);
+    let mut i = 0;
+    while i < n {
+        lines.push_back(LineInput {
+            line_id: i + 1,
+            ordered_quantity: 10,
+            unit_price: 5,
+        });
+        i += 1;
+    }
+    lines
+}
+
+#[test]
+fn line_count_boundary_validation_7_8_9() {
+    let f = fixture();
+
+    // 7 lines: below MAX_LINES bound (8) -> succeeds
+    let lines_7 = generate_n_lines(&f.env, 7);
+    f.client()
+        .mock_all_auths()
+        .create_po(&701, &f.buyer, &f.supplier, &f.token, &lines_7);
+    let po_7 = header(&f, 701);
+    assert_eq!(
+        po_7.line_count, 7,
+        "PO with 7 lines should have line_count of 7"
+    );
+    assert_eq!(
+        po_7.total_value,
+        7 * 10 * 5,
+        "PO with 7 lines should calculate correct total value"
+    );
+
+    // 8 lines: exact MAX_LINES boundary -> succeeds
+    let lines_8 = generate_n_lines(&f.env, 8);
+    f.client()
+        .mock_all_auths()
+        .create_po(&702, &f.buyer, &f.supplier, &f.token, &lines_8);
+    let po_8 = header(&f, 702);
+    assert_eq!(
+        po_8.line_count, 8,
+        "PO with 8 lines should have line_count of 8 (MAX_LINES)"
+    );
+    assert_eq!(
+        po_8.total_value,
+        8 * 10 * 5,
+        "PO with 8 lines should calculate correct total value"
+    );
+
+    // 9 lines: above MAX_LINES boundary -> fails with PoError::TooManyLines
+    let lines_9 = generate_n_lines(&f.env, 9);
+    let result_9 =
+        f.client()
+            .mock_all_auths()
+            .try_create_po(&703, &f.buyer, &f.supplier, &f.token, &lines_9);
+    assert_eq!(
+        result_9,
+        Err(Ok(PoError::TooManyLines)),
+        "PO with 9 lines must return PoError::TooManyLines"
+    );
+    assert!(
+        f.client().try_get_po(&703).is_err(),
+        "PO with 9 lines must not persist header"
+    );
+    assert!(
+        f.client().try_get_line(&703, &1).is_err(),
+        "PO with 9 lines must not persist line entries"
+    );
+}
+
 #[test]
 fn buyer_cannot_be_its_own_supplier() {
     let f = fixture();
