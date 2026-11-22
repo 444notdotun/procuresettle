@@ -1632,6 +1632,31 @@ fn buyer_rejection_only_changes_receipt_status() {
 }
 
 #[test]
+fn receipt_value_for_rejected_receipt_fails() {
+    let f = fixture();
+    funded_flagship(&f, 88);
+    authorized_submit(&f, 88, 1, &valid_receipt(&f));
+
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "reject_receipt",
+        args: (88_u64, 1_u64).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.client()
+        .mock_auths(&[MockAuth {
+            address: &f.buyer,
+            invoke: &invoke,
+        }])
+        .reject_receipt(&88, &1);
+
+    assert_eq!(
+        f.client().try_receipt_value(&88, &1),
+        Err(Ok(PoError::InvalidReceiptState))
+    );
+}
+
+#[test]
 fn unauthorized_rejection_leaves_receipt_and_po_unchanged() {
     let f = fixture();
     funded_flagship(&f, 84);
