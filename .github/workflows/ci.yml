@@ -27,6 +27,9 @@ jobs:
           echo "Checked out $actual"
           test "$actual" = "$EXPECTED_HEAD"
 
+      - name: Check repository hygiene
+        run: bash scripts/check-repo-hygiene.sh
+
       - name: Install pinned Rust and WASM target
         run: |
           rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
