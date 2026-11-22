@@ -12,6 +12,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       # v4.4.0; immutable release commit.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -38,6 +39,11 @@ jobs:
 
       - name: Check formatting
         run: cargo +1.95.0 --locked fmt --all -- --check
+
+      - name: Build Rust documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --document-private-items --locked
 
       - name: Check trailing whitespace and EOF newlines
         run: bash scripts/check-formatting.sh
