@@ -3397,3 +3397,47 @@ fn duplicate_line_in_receipt_input_is_rejected() {
         "failed duplicate submission must leave receipt ID 1 available"
     );
 }
+
+#[test]
+fn unordered_line_ids_are_accepted_during_creation() {
+    let f = fixture();
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 5,
+            ordered_quantity: 3,
+            unit_price: 7,
+        },
+        LineInput {
+            line_id: 2,
+            ordered_quantity: 4,
+            unit_price: 11,
+        },
+        LineInput {
+            line_id: 8,
+            ordered_quantity: 2,
+            unit_price: 13,
+        },
+    ];
+
+    authorized_create(&f, 18, &lines);
+
+    let po = header(&f, 18);
+    assert_eq!(po.po_id, 18);
+
+    let line_5 = f.client().get_line(&18, &5);
+    assert_eq!(line_5.ordered_quantity, 3);
+    assert_eq!(line_5.unit_price, 7);
+
+    let line_2 = f.client().get_line(&18, &2);
+    assert_eq!(line_2.ordered_quantity, 4);
+    assert_eq!(line_2.unit_price, 11);
+
+    let line_8 = f.client().get_line(&18, &8);
+    assert_eq!(line_8.ordered_quantity, 2);
+    assert_eq!(line_8.unit_price, 13);
+
+    let independent_total = 3 * 7 + 4 * 11 + 2 * 13;
+    assert_eq!(independent_total, 91);
+    assert_eq!(po.total_value, independent_total);
+}
