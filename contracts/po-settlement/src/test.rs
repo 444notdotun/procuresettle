@@ -1761,6 +1761,47 @@ fn receipt_preflight_is_read_only() {
 }
 
 #[test]
+fn get_receipt_status_returns_submitted_rejected_and_settled() {
+    let f = fixture();
+    funded_flagship(&f, 211);
+    let first = valid_receipt(&f);
+    authorized_submit(&f, 211, 1, &first);
+    assert_eq!(
+        f.client().get_receipt_status(&211, &1),
+        ReceiptStatus::Submitted
+    );
+
+    let reject = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "reject_receipt",
+        args: (211u64, 1u64).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.client()
+        .mock_auths(&[MockAuth {
+            address: &f.buyer,
+            invoke: &reject,
+        }])
+        .reject_receipt(&211, &1);
+    assert_eq!(
+        f.client().get_receipt_status(&211, &1),
+        ReceiptStatus::Rejected
+    );
+
+    let second = valid_receipt(&f);
+    authorized_submit(&f, 211, 2, &second);
+    assert_eq!(authorized_settle(&f, 211, 2), 56);
+    assert_eq!(
+        f.client().get_receipt_status(&211, &2),
+        ReceiptStatus::Settled
+    );
+    assert_eq!(
+        f.client().get_receipt_status(&211, &1),
+        ReceiptStatus::Rejected
+    );
+}
+
+#[test]
 fn receipt_value_on_settled_receipt_returns_historical_amount() {
     let f = fixture();
     let client = f.client();
@@ -1817,6 +1858,28 @@ fn preflight_accepts_maximum_reachable_po_value_without_overflow() {
     authorized_submit(&f, 88, 1, &quantities);
 
     assert_eq!(f.client().receipt_value(&88, &1), i128::MAX);
+}
+
+#[test]
+fn get_receipt_status_is_po_scoped_and_missing_receipts_error() {
+    let f = fixture();
+    funded_flagship(&f, 212);
+    funded_flagship(&f, 213);
+    let quantities = valid_receipt(&f);
+    authorized_submit(&f, 212, 1, &quantities);
+
+    assert_eq!(
+        f.client().get_receipt_status(&212, &1),
+        ReceiptStatus::Submitted
+    );
+    assert!(matches!(
+        f.client().try_get_receipt_status(&212, &2),
+        Err(Ok(PoError::ReceiptNotFound))
+    ));
+    assert!(matches!(
+        f.client().try_get_receipt_status(&213, &1),
+        Err(Ok(PoError::ReceiptNotFound))
+    ));
 }
 
 #[test]
