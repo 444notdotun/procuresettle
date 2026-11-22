@@ -12,9 +12,9 @@ A clear and concise description of the bug.
 
 ## Steps to Reproduce
 
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ## Expected Behavior
 
@@ -26,10 +26,10 @@ What actually happened.
 
 ## Environment
 
-- **OS**: 
-- **Rust version**: 
-- **Contract version**: 
-- **Additional context**: 
+- **OS**:
+- **Rust version**:
+- **Contract version**:
+- **Additional context**:
 
 ## Additional Context
 
