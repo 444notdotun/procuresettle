@@ -1,0 +1,9 @@
+{
+  "receipt_id": 4,
+  "quantities": [
+    {
+      "line_id": 1,
+      "quantity_delta": 3
+    }
+  ]
+}
