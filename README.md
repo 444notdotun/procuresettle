@@ -1,5 +1,8 @@
 # ProcureSettle
 
+![CI](https://github.com/starboytiimz/procuresettle/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)
+
 Accepted-quantity procurement settlement on Stellar.
 
 ProcureSettle (formerly LineSettle) is a Soroban purchase-order settlement
