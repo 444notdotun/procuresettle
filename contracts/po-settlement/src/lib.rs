@@ -916,6 +916,45 @@ impl PoSettlement {
             .ok_or(PoError::NotFound)
     }
 
+    /// Returns the number of lines recorded for `po_id`. No authorization is required.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header is stored for `po_id`.
+    pub fn get_po_line_count(env: Env, po_id: u64) -> Result<u32, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.line_count)
+            .ok_or(PoError::NotFound)
+    }
+
+    /// Returns the supplier recorded for `po_id`. No authorization is required.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header is stored for `po_id`.
+    pub fn get_po_supplier(env: Env, po_id: u64) -> Result<Address, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.supplier)
+            .ok_or(PoError::NotFound)
+    }
+
+    /// Returns the settlement token recorded for `po_id`. No authorization is required.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header is stored for `po_id`.
+    pub fn get_po_token(env: Env, po_id: u64) -> Result<Address, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.token)
+            .ok_or(PoError::NotFound)
+    }
+
     /// Returns the funded value recorded for the specified purchase order.
     pub fn get_funded_value(env: Env, po_id: u64) -> Result<i128, PoError> {
         extend_contract_ttl(&env);
