@@ -102,6 +102,9 @@ result as an estimate rather than a guaranteed payout.
 - [State machine reference](docs/STATE-MACHINE.md): Unambiguous transition matrix, required authorizations, terminal states, and rejected transitions for `PoStatus` and `ReceiptStatus`.
 - [Storage TTL and renewal](docs/STORAGE-TTL.md): TTL constants, bump-on-access policy, and ledger archival behavior.
 - [Contract error reference](docs/ERRORS.md): Complete table of `PoError` codes, root causes, and recommended caller actions.
+- [Contract events specification](docs/EVENTS.md): Event topics, positional data tuples, and lifecycle emission status.
+- [Cancellation and refund economics](docs/CANCELLATION.md): Joint authorization, refund accounting, and atomicity.
+- [Movix compatibility boundary](docs/MOVIX-COMPATIBILITY.md): Scope and verification method for the pinned fixture proof.
 
 ## CLI walkthrough
 
