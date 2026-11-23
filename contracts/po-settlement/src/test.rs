@@ -3123,6 +3123,7 @@ fn three_sequential_partial_receipts_reach_closed_state() {
     assert_eq!(funded.total_value, 160);
     assert_eq!(funded.funded_value, 160);
     assert_eq!(funded.paid_value, 0);
+    assert_eq!(f.client().get_po_paid_value(&210), 0);
 
     let r1 = soroban_sdk::vec![
         &f.env,
@@ -3138,6 +3139,7 @@ fn three_sequential_partial_receipts_reach_closed_state() {
     let after_r1 = header(&f, 210);
     assert_eq!(after_r1.status, PoStatus::Funded);
     assert_eq!(after_r1.paid_value, 30);
+    assert_eq!(f.client().get_po_paid_value(&210), 30);
     assert_eq!(
         f.client().get_receipt(&210, &1).status,
         ReceiptStatus::Settled
@@ -3164,6 +3166,7 @@ fn three_sequential_partial_receipts_reach_closed_state() {
     let after_r2 = header(&f, 210);
     assert_eq!(after_r2.status, PoStatus::Funded);
     assert_eq!(after_r2.paid_value, 110);
+    assert_eq!(f.client().get_po_paid_value(&210), 110);
     assert_eq!(
         f.client().get_receipt(&210, &2).status,
         ReceiptStatus::Settled
@@ -3188,6 +3191,7 @@ fn three_sequential_partial_receipts_reach_closed_state() {
     assert_eq!(closed.total_value, 160);
     assert_eq!(closed.funded_value, 160);
     assert_eq!(closed.paid_value, 160);
+    assert_eq!(f.client().get_po_paid_value(&210), closed.total_value);
     assert_eq!(closed.refunded_value, 0);
     assert_eq!(
         f.client().get_receipt(&210, &3).status,
