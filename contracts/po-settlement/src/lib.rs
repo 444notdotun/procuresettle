@@ -984,6 +984,16 @@ impl PoSettlement {
             .ok_or(PoError::NotFound)
     }
 
+    /// Returns the cumulative value paid to the supplier for the specified purchase order.
+    pub fn get_po_paid_value(env: Env, po_id: u64) -> Result<i128, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.paid_value)
+            .ok_or(PoError::NotFound)
+    }
+
     /// Reads one stored PO line, including its accepted quantity. No authorization is required.
     ///
     /// # Arguments

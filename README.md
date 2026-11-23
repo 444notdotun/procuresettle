@@ -101,6 +101,9 @@ result as an estimate rather than a guaranteed payout.
 
 ## Architecture and specifications
 
+- [Repository architecture](docs/ARCHITECTURE.md): Workspace components,
+  on-chain and off-chain responsibilities, evidence bundles, and CI
+  verification.
 - [Data model specification](docs/DATA-MODEL.md): Persistent storage layout, `DataKey` definitions, struct fields, and deserialization cost bounds.
 - [State machine reference](docs/STATE-MACHINE.md): Unambiguous transition matrix, required authorizations, terminal states, and rejected transitions for `PoStatus` and `ReceiptStatus`.
 - [Storage TTL and renewal](docs/STORAGE-TTL.md): TTL constants, bump-on-access policy, and ledger archival behavior.
