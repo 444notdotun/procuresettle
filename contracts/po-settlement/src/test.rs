@@ -2093,6 +2093,22 @@ fn flagship_partial_and_final_receipts_settle_quantity_derived_values() {
 
     assert_eq!(authorized_settle(&f, 90, 1), expected_r1);
     assert_eq!(
+        f.env.events().all().filter_by_contract(&f.contract),
+        soroban_sdk::vec![
+            &f.env,
+            (
+                f.contract.clone(),
+                soroban_sdk::vec![
+                    &f.env,
+                    Symbol::new(&f.env, "receipt_settled").into_val(&f.env),
+                    90_u64.into_val(&f.env),
+                    1_u64.into_val(&f.env),
+                ],
+                expected_r1.into_val(&f.env),
+            ),
+        ]
+    );
+    assert_eq!(
         f.client().get_receipt(&90, &1).status,
         ReceiptStatus::Settled
     );
