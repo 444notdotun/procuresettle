@@ -6,8 +6,8 @@ part of the interface and consumers should decode values by position. Monetary
 values are signed `i128` token base units; identifiers are `u64` values and
 addresses are Soroban `Address` values.
 
-The contract currently emits `po_created`, `po_funded`, `po_refunded`, and
-`receipt_submitted`. The remaining lifecycle entries are reserved schema
+The contract currently emits `po_created`, `po_funded`, `po_refunded`,
+`receipt_submitted`, and `receipt_settled`. The remaining lifecycle entries are reserved schema
 documentation for the corresponding transitions; consumers must not infer that
 an event was emitted unless it is present in the transaction event stream.
 
@@ -61,8 +61,8 @@ The acceptance event schema identifies the supplier who accepted the draft.
 
 ## `receipt_settled`
 
-The settlement event schema identifies the receipt and its quantity-derived
-payout.
+Published after `accept_receipt_and_settle` successfully transfers the
+quantity-derived payout to the supplier.
 
 - Topics: `("receipt_settled", po_id, receipt_id)`
 - Data: `payout`

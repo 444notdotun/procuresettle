@@ -735,6 +735,11 @@ impl PoSettlement {
             &settlement_value,
         );
 
+        #[allow(deprecated)]
+        env.events().publish(
+            (Symbol::new(&env, "receipt_settled"), po_id, receipt_id),
+            settlement_value,
+        );
         Ok(settlement_value)
     }
 
