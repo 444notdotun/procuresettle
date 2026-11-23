@@ -105,11 +105,24 @@ result as an estimate rather than a guaranteed payout.
 - [Contract events specification](docs/EVENTS.md): Event topics, positional data tuples, and lifecycle emission status.
 - [Cancellation and refund economics](docs/CANCELLATION.md): Joint authorization, refund accounting, and atomicity.
 - [Movix compatibility boundary](docs/MOVIX-COMPATIBILITY.md): Scope and verification method for the pinned fixture proof.
+- [Offline receipt settlement calculator](docs/RECEIPT-VALUE-CALCULATOR.md): Input schemas and usage for the standalone Python payout calculator.
 
 ## CLI walkthrough
 
 For step-by-step Stellar CLI commands that create and fund a PO, see
 [docs/CLI-WALKTHROUGH.md](docs/CLI-WALKTHROUGH.md).
+
+## Offline payout verification
+
+`scripts/calc-receipt-value.py` rechecks a receipt payout from local JSON files
+without a network connection or a running ledger:
+
+```sh
+python3 scripts/calc-receipt-value.py --po-file <path-to-po.json> --receipt-file <path-to-receipt.json>
+```
+
+See [the calculator documentation](docs/RECEIPT-VALUE-CALCULATOR.md) for the
+expected input structures and validation rules.
 
 ## Evidence
 

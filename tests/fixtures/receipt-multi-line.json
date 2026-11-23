@@ -1,0 +1,14 @@
+{
+  "receipt_id": 2,
+  "po_id": 7,
+  "quantities": [
+    {
+      "line_id": 1,
+      "quantity_delta": 6
+    },
+    {
+      "line_id": 2,
+      "quantity_delta": 4
+    }
+  ]
+}
