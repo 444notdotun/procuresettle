@@ -51,6 +51,9 @@ jobs:
       - name: Test workspace
         run: cargo +1.95.0 test --workspace --locked
 
+      - name: Ensure test snapshots are unchanged
+        run: git diff --exit-code contracts/po-settlement/test_snapshots/
+
       - name: Validate proof scripts and evidence bundles
         run: |
           python3 -m py_compile scripts/*.py

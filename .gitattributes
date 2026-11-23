@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.rs text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+
+*.wasm binary
+
+test_snapshots/**/*.json linguist-generated
