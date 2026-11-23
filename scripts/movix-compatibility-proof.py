@@ -61,7 +61,9 @@ def main() -> int:
 
     fixture_path = checkout / "packages/domain/src/fixtures.ts"
     fixture = fixture_path.read_text(encoding="utf-8")
-    draft = re.search(r"export const draftOrder\s*=\s*\{(?P<body>.*?)\n\}\s*as const;", fixture, re.S)
+    draft = re.search(
+        r"export const draftOrder\s*=\s*\{(?P<body>.*?)\n\}\s*as const;", fixture, re.S
+    )
     require(draft is not None, "draftOrder fixture block not found")
     body = draft.group("body")
     po_match = re.search(r'purchaseOrderNumber:\s*"([^"]+)"', body)
@@ -70,7 +72,10 @@ def main() -> int:
         r"\{\s*lineNumber:\s*(\d+)\s*,\s*quantity:\s*([\d_]+)n\s*,\s*unitPriceBaseUnits:\s*([\d_]+)n\s*\}",
         body,
     )
-    require(po_match is not None and po_match.group(1) == "MOVIX-PO-0001", "expected PO fixture not found")
+    require(
+        po_match is not None and po_match.group(1) == "MOVIX-PO-0001",
+        "expected PO fixture not found",
+    )
     require(total_match is not None, "draftOrder.totalBaseUnits not found")
     lines = [
         {
@@ -89,7 +94,10 @@ def main() -> int:
     derived_values = [line["quantity"] * line["unit_price_base_units"] for line in lines]
     recomputed_total = sum(derived_values)
     require(total == 467_500_000, f"fixture total is {total}, expected 467500000")
-    require(recomputed_total == total, f"independent line calculation gives {recomputed_total}, fixture says {total}")
+    require(
+        recomputed_total == total,
+        f"independent line calculation gives {recomputed_total}, fixture says {total}",
+    )
 
     domain_test = (checkout / "packages/domain/src/domain.test.ts").read_text(encoding="utf-8")
     require(
@@ -98,15 +106,33 @@ def main() -> int:
         "Movix domain test does not independently recompute the fixture total",
     )
     pivot = (checkout / "docs/Movix-ASEAN-Agricultural-Trade-Pivot.md").read_text(encoding="utf-8")
-    sprint8 = (checkout / "docs/Movix-Sprint-08-Fulfillment-Release-Detailed.md").read_text(encoding="utf-8")
+    sprint8 = (checkout / "docs/Movix-Sprint-08-Fulfillment-Release-Detailed.md").read_text(
+        encoding="utf-8"
+    )
     abi = (checkout / "docs/contracts/escrow-v1/abi.md").read_text(encoding="utf-8")
     escrow = (checkout / "contracts/escrow/src/lib.rs").read_text(encoding="utf-8")
-    panel = (checkout / "apps/web/features/orders/escrow-fulfillment-panel.tsx").read_text(encoding="utf-8")
-    for phrase in ("split shipments, multiple lots, partial delivery, and partial release", "AGR-03 — Final quantity"):
+    panel = (checkout / "apps/web/features/orders/escrow-fulfillment-panel.tsx").read_text(
+        encoding="utf-8"
+    )
+    for phrase in (
+        "split shipments, multiple lots, partial delivery, and partial release",
+        "AGR-03 — Final quantity",
+    ):
         require(phrase in pivot, f"current product authority is missing: {phrase}")
-    require("Partial releases, split shipments, or multi-tranche payments" in sprint8, "Sprint 8 scope boundary missing")
-    require("quantity changes payable value" in pivot and "parties amend or enter the exception/refund path" in pivot, "AGR-03 boundary missing")
-    require("confirm_delivery" in escrow and "token_client.transfer(&contract, &escrow.supplier, &net_amount)" in escrow, "whole-order settlement source path changed")
+    require(
+        "Partial releases, split shipments, or multi-tranche payments" in sprint8,
+        "Sprint 8 scope boundary missing",
+    )
+    require(
+        "quantity changes payable value" in pivot
+        and "parties amend or enter the exception/refund path" in pivot,
+        "AGR-03 boundary missing",
+    )
+    require(
+        "confirm_delivery" in escrow
+        and "token_client.transfer(&contract, &escrow.supplier, &net_amount)" in escrow,
+        "whole-order settlement source path changed",
+    )
     require("release the full escrow" in panel, "full-release UI statement missing")
     require("no dispute resolver, partial settlement" in abi, "escrow ABI limitation missing")
 
@@ -127,7 +153,9 @@ def main() -> int:
         "deferred_partial_delivery_and_release_scope_verified": True,
         "agr_03_amendment_or_exception_refund_boundary_verified": True,
         "whole_order_release_after_delivery_confirmation_verified": True,
-        "verified_blob_ids": {path: git(checkout, "rev-parse", f"HEAD:{path}") for path in EXPECTED_BLOBS},
+        "verified_blob_ids": {
+            path: git(checkout, "rev-parse", f"HEAD:{path}") for path in EXPECTED_BLOBS
+        },
     }
     serialized = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:

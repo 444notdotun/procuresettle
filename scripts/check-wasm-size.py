@@ -8,7 +8,6 @@ import hashlib
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WASM = ROOT / "target" / "wasm32v1-none" / "release" / "procuresettle.wasm"
 DEFAULT_MAX_SIZE_BYTES = 64 * 1024

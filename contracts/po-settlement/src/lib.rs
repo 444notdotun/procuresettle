@@ -552,6 +552,11 @@ impl PoSettlement {
         extend_receipt_ttl(&env, &receipt)?;
         receipt.status = ReceiptStatus::Rejected;
         env.storage().persistent().set(&key, &receipt);
+        #[allow(deprecated)]
+        env.events().publish(
+            (Symbol::new(&env, "receipt_rejected"), po_id, receipt_id),
+            header.buyer,
+        );
         Ok(())
     }
 
@@ -919,6 +924,19 @@ impl PoSettlement {
         env.storage()
             .persistent()
             .get(&DataKey::Header(po_id))
+            .ok_or(PoError::NotFound)
+    }
+
+    /// Returns the stored calculated total value for `po_id`.
+    ///
+    /// This is a read-only purchase-order lookup and does not derive or modify
+    /// the PO's total. No authorization is required.
+    pub fn get_po_total_value(env: Env, po_id: u64) -> Result<i128, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.total_value)
             .ok_or(PoError::NotFound)
     }
 

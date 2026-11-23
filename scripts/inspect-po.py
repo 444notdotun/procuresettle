@@ -7,7 +7,6 @@ import subprocess
 import sys
 from urllib.request import Request, urlopen
 
-
 # CLI 28.1.0 requires a source even for simulations. The all-zero public key
 # satisfies the CLI without requiring an identity or signing any transaction.
 SIMULATION_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
@@ -44,13 +43,22 @@ def main():
         network = ["--network", args.network]
         if args.rpc_url:
             network = [
-                "--rpc-url", args.rpc_url,
-                "--network-passphrase", rpc_passphrase(args.rpc_url),
+                "--rpc-url",
+                args.rpc_url,
+                "--network-passphrase",
+                rpc_passphrase(args.rpc_url),
             ]
         invoke = [
-            "stellar", "contract", "invoke", "--send=no",
-            "--source-account", SIMULATION_SOURCE,
-            "--contract-id", args.contract_id, *network, "--",
+            "stellar",
+            "contract",
+            "invoke",
+            "--send=no",
+            "--source-account",
+            SIMULATION_SOURCE,
+            "--contract-id",
+            args.contract_id,
+            *network,
+            "--",
         ]
 
         def query(method, *params):
