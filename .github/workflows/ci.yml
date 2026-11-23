@@ -12,6 +12,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       # v4.4.0; immutable release commit.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -27,14 +28,25 @@ jobs:
           echo "Checked out $actual"
           test "$actual" = "$EXPECTED_HEAD"
 
+      - name: Check repository hygiene
+        run: bash scripts/check-repo-hygiene.sh
+
       - name: Install pinned Rust and WASM target
         run: |
-          rustup toolchain install 1.95.0 --profile minimal --component rustfmt
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
           rustup target add --toolchain 1.95.0 wasm32v1-none
           rustc +1.95.0 --version
 
       - name: Check formatting
-        run: cargo +1.95.0 fmt --all -- --check
+        run: cargo +1.95.0 --locked fmt --all -- --check
+
+      - name: Build Rust documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --document-private-items --locked
+
+      - name: Check trailing whitespace and EOF newlines
+        run: bash scripts/check-formatting.sh
 
       - name: Test workspace
         run: cargo +1.95.0 test --workspace --locked
@@ -47,10 +59,35 @@ jobs:
           python3 -m py_compile scripts/*.py
           python3 scripts/verify-evidence-checksums.py
 
+      - name: Dry-run proof scripts
+        run: |
+          set -euo pipefail
+          scratch=$(mktemp -d)
+          trap 'rm -rf "$scratch"' EXIT
+          mkdir -p "$scratch/config"
+          : > "$scratch/procuresettle.wasm"
+          for script in local-flagship-proof local-cancellation-proof; do
+            python3 "scripts/$script.py" --dry-run \
+              --config-dir "$scratch/config" \
+              --wasm "$scratch/procuresettle.wasm" \
+              --report-dir "$scratch/reports" \
+              --issuer-identity issuer \
+              --buyer-identity buyer --buyer-address GBUYER \
+              --supplier-identity supplier --supplier-address GSUPPLIER \
+              --sac-id CSAC
+          done
+
       - name: Install pinned Stellar CLI
-        uses: stellar/stellar-cli@c0f4d0da891bbf214c08b8c5035ae6db80e9a3bd
-        with:
-          version: 28.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=28.1.0
+          asset="stellar-cli-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${version}/${asset}" \
+            -o "$asset"
+          tar -xzf "$asset"
+          sudo install stellar /usr/local/bin/stellar
 
       - name: Verify Stellar CLI version
         run: |
@@ -59,6 +96,9 @@ jobs:
 
       - name: Build contract
         run: stellar contract build --locked --package procuresettle
+
+      - name: Verify Cargo.lock is unchanged
+        run: git diff --exit-code Cargo.lock
 
   flagship:
     runs-on: ubuntu-24.04
@@ -96,21 +136,33 @@ jobs:
           git rev-parse HEAD
 
       - name: Install pinned Stellar CLI
-        uses: stellar/stellar-cli@c0f4d0da891bbf214c08b8c5035ae6db80e9a3bd
-        with:
-          version: 28.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=28.1.0
+          asset="stellar-cli-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${version}/${asset}" \
+            -o "$asset"
+          tar -xzf "$asset"
+          sudo install stellar /usr/local/bin/stellar
 
       - name: Verify Stellar CLI version
         run: |
           stellar --version
           test "$(stellar --version | awk 'NR == 1 { print $2 }')" = "28.1.0"
 
-      - name: Build ProcureSettle
+      - name: Build ProcureSettle and record artifact identity
+        id: build
         run: |
           stellar contract build --locked --package procuresettle
-          sha256sum target/wasm32v1-none/release/procuresettle.wasm
-          test "$(stat -c '%s' target/wasm32v1-none/release/procuresettle.wasm)" = "25484"
-          test "$(sha256sum target/wasm32v1-none/release/procuresettle.wasm | awk '{print $1}')" = "78b5c6dec22ad1cea497223ff411af544dcd1e9fd613b85514f2c5ae03873a7c"
+          wasm=target/wasm32v1-none/release/procuresettle.wasm
+          test -s "$wasm"
+          sha=$(sha256sum "$wasm" | cut -d ' ' -f 1)
+          size=$(stat -c '%s' "$wasm")
+          echo "Built $wasm (size=$size, sha256=$sha)"
+          echo "wasm_size=$size" >> "$GITHUB_OUTPUT"
+          echo "wasm_sha256=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Install pinned proof SDK dependencies
         run: python3 -m pip install --disable-pip-version-check -r requirements-proof.txt
@@ -132,11 +184,20 @@ jobs:
           echo "Pinned Quickstart image: $image (image_id=$digest_image_id)"
 
       - name: Start fresh local Stellar network
+        shell: bash
         run: |
+          set -euo pipefail
           stellar --config-dir "$STELLAR_CONFIG_DIR" container start local \
             --name procuresettle-local-proof --cpus 2 --memory 4g \
             --protocol-version 28 --image-tag-override "$QUICKSTART_IMAGE_TAG"
           stellar --config-dir "$STELLAR_CONFIG_DIR" network use local
+          container_image_id=$(docker inspect "$QUICKSTART_CONTAINER" --format '{{.Image}}')
+          pinned_image_id=$(docker image inspect "stellar/quickstart@$QUICKSTART_IMAGE_DIGEST" --format '{{.Id}}')
+          if [ "$container_image_id" != "$pinned_image_id" ]; then
+            echo "Quickstart container started from $container_image_id, expected pinned image $pinned_image_id" >&2
+            exit 1
+          fi
+          echo "Quickstart container is using the pinned image: $pinned_image_id"
 
       - name: Wait for local network readiness and record image identity
         shell: bash
@@ -277,6 +338,8 @@ jobs:
           python3 scripts/local-flagship-proof.py \
             --config-dir "$STELLAR_CONFIG_DIR" \
             --wasm target/wasm32v1-none/release/procuresettle.wasm \
+            --expected-wasm-size "${{ steps.build.outputs.wasm_size }}" \
+            --expected-wasm-sha256 "${{ steps.build.outputs.wasm_sha256 }}" \
             --report-dir "$REPORT_DIR" \
             --issuer-identity stage6-issuer \
             --buyer-identity stage6-buyer --buyer-address "$STAGE6_BUYER" \
@@ -289,6 +352,8 @@ jobs:
           python3 scripts/local-cancellation-proof.py \
             --config-dir "$STELLAR_CONFIG_DIR" \
             --wasm target/wasm32v1-none/release/procuresettle.wasm \
+            --expected-wasm-size "${{ steps.build.outputs.wasm_size }}" \
+            --expected-wasm-sha256 "${{ steps.build.outputs.wasm_sha256 }}" \
             --report-dir "$REPORT_DIR" \
             --issuer-identity stage6-issuer \
             --buyer-identity stage6-buyer --buyer-address "$STAGE6_BUYER" \

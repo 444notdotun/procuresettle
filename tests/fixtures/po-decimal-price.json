@@ -1,0 +1,8 @@
+[
+  {
+    "line_id": 1,
+    "ordered_quantity": 3,
+    "unit_price": "0.125",
+    "description": "Decimal-price item"
+  }
+]

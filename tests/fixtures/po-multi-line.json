@@ -1,0 +1,22 @@
+{
+  "header": {
+    "po_id": 7,
+    "status": "Funded",
+    "total_value": "100"
+  },
+  "lines": [
+    {
+      "line_id": 1,
+      "ordered_quantity": 10,
+      "unit_price": "6",
+      "description": "Widgets"
+    },
+    {
+      "line_id": 2,
+      "ordered_quantity": 8,
+      "accepted_quantity": 4,
+      "unit_price": "5",
+      "description": "Gaskets"
+    }
+  ]
+}
