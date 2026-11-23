@@ -929,6 +929,19 @@ impl PoSettlement {
             .ok_or(PoError::NotFound)
     }
 
+    /// Returns the buyer recorded for `po_id`. No authorization is required.
+    ///
+    /// # Errors
+    /// * [`PoError::NotFound`] - no header is stored for `po_id`.
+    pub fn get_po_buyer(env: Env, po_id: u64) -> Result<Address, PoError> {
+        extend_contract_ttl(&env);
+        env.storage()
+            .persistent()
+            .get::<_, PurchaseOrder>(&DataKey::Header(po_id))
+            .map(|po| po.buyer)
+            .ok_or(PoError::NotFound)
+    }
+
     /// Returns the supplier recorded for `po_id`. No authorization is required.
     ///
     /// # Errors

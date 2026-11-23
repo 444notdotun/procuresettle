@@ -421,6 +421,7 @@ fn po_metadata_getters_return_stored_values() {
     authorized_create(&f, 42, &lines);
 
     assert_eq!(f.client().get_po_line_count(&42), 2);
+    assert_eq!(f.client().get_po_buyer(&42), f.buyer);
     assert_eq!(f.client().get_po_supplier(&42), f.supplier);
     assert_eq!(f.client().get_po_token(&42), f.token);
 }
@@ -434,6 +435,10 @@ fn po_metadata_getters_return_not_found_for_unknown_ids() {
         Err(Ok(PoError::NotFound))
     );
     assert_eq!(
+        f.client().try_get_po_buyer(&999),
+        Err(Ok(PoError::NotFound))
+    );
+    assert_eq!(
         f.client().try_get_po_supplier(&999),
         Err(Ok(PoError::NotFound))
     );
@@ -441,6 +446,27 @@ fn po_metadata_getters_return_not_found_for_unknown_ids() {
         f.client().try_get_po_token(&999),
         Err(Ok(PoError::NotFound))
     );
+}
+
+#[test]
+fn po_error_discriminant_stability() {
+    assert_eq!(PoError::AlreadyExists as u32, 1);
+    assert_eq!(PoError::NotFound as u32, 2);
+    assert_eq!(PoError::InvalidPoId as u32, 3);
+    assert_eq!(PoError::InvalidLine as u32, 4);
+    assert_eq!(PoError::DuplicateLineId as u32, 5);
+    assert_eq!(PoError::TooManyLines as u32, 6);
+    assert_eq!(PoError::ArithmeticOverflow as u32, 7);
+    assert_eq!(PoError::InvalidParties as u32, 8);
+    assert_eq!(PoError::InvalidState as u32, 9);
+    assert_eq!(PoError::ReceiptAlreadyExists as u32, 10);
+    assert_eq!(PoError::InvalidReceipt as u32, 11);
+    assert_eq!(PoError::DuplicateReceiptLine as u32, 12);
+    assert_eq!(PoError::UnknownPoLine as u32, 13);
+    assert_eq!(PoError::QuantityExceedsRemaining as u32, 14);
+    assert_eq!(PoError::InvalidReceiptState as u32, 15);
+    assert_eq!(PoError::ReceiptNotFound as u32, 16);
+    assert_eq!(PoError::SettlementExceedsFunded as u32, 17);
 }
 
 #[test]
