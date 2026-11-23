@@ -145,9 +145,7 @@ PO_ERRORS: dict[int, PoErrorInfo] = {
     ),
 }
 
-CONTRACT_ERROR_RE = re.compile(
-    r"Error\(\s*Contract\s*,\s*#(\d+)\s*\)", re.IGNORECASE
-)
+CONTRACT_ERROR_RE = re.compile(r"Error\(\s*Contract\s*,\s*#(\d+)\s*\)", re.IGNORECASE)
 NUMERIC_CODE_RE = re.compile(r"^#?(\d+)$")
 
 

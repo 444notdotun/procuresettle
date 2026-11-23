@@ -54,13 +54,15 @@ class Proof:
         for attempt in range(attempts):
             self.log.write(f"\n$ {shlex.join(cmd)}\n")
             proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
-            self.log.write(f"EXIT={proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}\n")
+            self.log.write(
+                f"EXIT={proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}\n"
+            )
             self.log.flush()
             failure = proc.stdout + "\n" + proc.stderr
             if not (
                 read_only
                 and proc.returncode != 0
-                and 'could not query captive core' in failure
+                and "could not query captive core" in failure
                 and attempt + 1 < attempts
             ):
                 break
@@ -77,10 +79,18 @@ class Proof:
         self, contract: str, source: str, method: str, *args: str, read_only: bool = False
     ) -> tuple[int, str, str]:
         command = [
-                "contract", "invoke", "--contract-id", contract,
-                "--source-account", source, "--network", "local", "--",
-                method, *args,
-            ]
+            "contract",
+            "invoke",
+            "--contract-id",
+            contract,
+            "--source-account",
+            source,
+            "--network",
+            "local",
+            "--",
+            method,
+            *args,
+        ]
         # Stellar CLI 28.1.0 sends successful mutating invocations by default;
         # read-only methods remain simulation-only. `--send` is a global CLI
         # option and is not accepted after the generated method arguments.
@@ -100,9 +110,7 @@ class Proof:
         raise RuntimeError(f"no JSON result in CLI output: {stdout!r} {stderr!r}")
 
     def query(self, contract: str, method: str, *args: str) -> Any:
-        _, out, err = self.invoke(
-            contract, self.args.buyer_identity, method, *args, read_only=True
-        )
+        _, out, err = self.invoke(contract, self.args.buyer_identity, method, *args, read_only=True)
         value = self.json_value(out, err)
         if not isinstance(value, (dict, list)):
             raise RuntimeError(f"expected structured result from {method}, got {value!r}")
@@ -110,7 +118,16 @@ class Proof:
 
     def balance(self, account: str) -> int:
         _, out, err = self.run(
-            ["token", "balance", "--id", self.args.sac_id, "--account", account, "--network", "local"],
+            [
+                "token",
+                "balance",
+                "--id",
+                self.args.sac_id,
+                "--account",
+                account,
+                "--network",
+                "local",
+            ],
             read_only=True,
         )
         text = (out + "\n" + err).strip().splitlines()
@@ -124,8 +141,14 @@ class Proof:
     def deploy(self) -> str:
         _, out, err = self.run(
             [
-                "contract", "deploy", "--wasm", str(self.wasm),
-                "--source-account", self.args.issuer_identity, "--network", "local",
+                "contract",
+                "deploy",
+                "--wasm",
+                str(self.wasm),
+                "--source-account",
+                self.args.issuer_identity,
+                "--network",
+                "local",
             ]
         )
         matches = re.findall(r"\bC[A-Z2-7]{55}\b", out + "\n" + err)
@@ -138,11 +161,16 @@ class Proof:
             contract,
             self.args.buyer_identity,
             "create_po",
-            "--po_id", str(po_id),
-            "--buyer", self.args.buyer_address,
-            "--supplier", self.args.supplier_address,
-            "--token", self.args.sac_id,
-            "--lines", json.dumps(LINES, separators=(",", ":")),
+            "--po_id",
+            str(po_id),
+            "--buyer",
+            self.args.buyer_address,
+            "--supplier",
+            self.args.supplier_address,
+            "--token",
+            self.args.sac_id,
+            "--lines",
+            json.dumps(LINES, separators=(",", ":")),
         )
         created = self.query(contract, "get_po", "--po_id", str(po_id))
         assert created["status"] == "Draft" and int(created["total_value"]) == 100
@@ -160,17 +188,24 @@ class Proof:
         assert po["status"] == "Funded" and int(po["funded_value"]) == 100
         return buyer_after, contract_after, contract_before
 
-    def submit(self, contract: str, po_id: int, receipt_id: int, quantities: list[dict[str, int]]) -> None:
+    def submit(
+        self, contract: str, po_id: int, receipt_id: int, quantities: list[dict[str, int]]
+    ) -> None:
         self.invoke(
             contract,
             self.args.supplier_identity,
             "submit_receipt",
-            "--po_id", str(po_id),
-            "--receipt_id", str(receipt_id),
-            "--quantities", json.dumps(quantities, separators=(",", ":")),
+            "--po_id",
+            str(po_id),
+            "--receipt_id",
+            str(receipt_id),
+            "--quantities",
+            json.dumps(quantities, separators=(",", ":")),
         )
 
-    def raw_receipt_value(self, contract: str, po_id: int, receipt_id: int) -> tuple[int, dict[str, Any]]:
+    def raw_receipt_value(
+        self, contract: str, po_id: int, receipt_id: int
+    ) -> tuple[int, dict[str, Any]]:
         receipt = self.query(
             contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", str(receipt_id)
         )
@@ -179,10 +214,18 @@ class Proof:
         raw_lines = []
         for line_id in receipt["line_ids"]:
             delta = self.query(
-                contract, "get_receipt_line", "--po_id", str(po_id),
-                "--receipt_id", str(receipt_id), "--line_id", str(line_id),
+                contract,
+                "get_receipt_line",
+                "--po_id",
+                str(po_id),
+                "--receipt_id",
+                str(receipt_id),
+                "--line_id",
+                str(line_id),
             )
-            line = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", str(line_id))
+            line = self.query(
+                contract, "get_line", "--po_id", str(po_id), "--line_id", str(line_id)
+            )
             assert delta["line_id"] == line_id
             value += int(delta["quantity_delta"]) * int(line["unit_price"])
             raw_lines.append({"receipt_line": delta, "po_line": line})
@@ -190,8 +233,13 @@ class Proof:
 
     def settle(self, contract: str, po_id: int, receipt_id: int, expected: int) -> None:
         _, out, err = self.invoke(
-            contract, self.args.buyer_identity, "accept_receipt_and_settle",
-            "--po_id", str(po_id), "--receipt_id", str(receipt_id),
+            contract,
+            self.args.buyer_identity,
+            "accept_receipt_and_settle",
+            "--po_id",
+            str(po_id),
+            "--receipt_id",
+            str(receipt_id),
         )
         result = self.json_value(out, err)
         assert int(result) == expected, (result, expected)
@@ -200,10 +248,15 @@ class Proof:
         self.create_po(contract, po_id)
         buyer_after_fund, contract_after_fund, contract_before_fund = self.fund_po(contract, po_id)
         supplier_before = self.balance(self.args.supplier_address)
-        self.submit(contract, po_id, 1, [
-            {"line_id": 1, "quantity_delta": 6},
-            {"line_id": 2, "quantity_delta": 4},
-        ])
+        self.submit(
+            contract,
+            po_id,
+            1,
+            [
+                {"line_id": 1, "quantity_delta": 6},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+        )
         expected_r1, raw_r1 = self.raw_receipt_value(contract, po_id, 1)
         assert expected_r1 == 56
         raw_before_r1 = self.query(contract, "get_po", "--po_id", str(po_id))
@@ -224,10 +277,15 @@ class Proof:
         r1_supplier_after = self.balance(self.args.supplier_address)
         r1_contract_after = self.balance(contract)
 
-        self.submit(contract, po_id, 2, [
-            {"line_id": 1, "quantity_delta": 4},
-            {"line_id": 2, "quantity_delta": 4},
-        ])
+        self.submit(
+            contract,
+            po_id,
+            2,
+            [
+                {"line_id": 1, "quantity_delta": 4},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+        )
         expected_final, raw_final = self.raw_receipt_value(contract, po_id, 2)
         assert expected_final == 44
         supplier_before_r2 = self.balance(self.args.supplier_address)
@@ -236,7 +294,9 @@ class Proof:
         final_po = self.query(contract, "get_po", "--po_id", str(po_id))
         line_a = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", "1")
         line_b = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", "2")
-        receipt_final = self.query(contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", "2")
+        receipt_final = self.query(
+            contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", "2"
+        )
         assert final_po["status"] == "Closed"
         assert int(final_po["funded_value"]) == 100
         assert int(final_po["paid_value"]) == 100
@@ -249,15 +309,21 @@ class Proof:
         assert self.balance(self.args.supplier_address) - supplier_before_r2 == 44
         assert contract_before_r2 - self.balance(contract) == 44
         return {
-            "contract_id": contract, "po_id": po_id, "r1_raw": raw_r1,
-            "r1_expected_and_paid": expected_r1, "r1_po": after_r1,
-            "r1_lines": r1_lines, "r2_raw": raw_final,
-            "r2_expected_and_paid": expected_final, "final_po": final_po,
+            "contract_id": contract,
+            "po_id": po_id,
+            "r1_raw": raw_r1,
+            "r1_expected_and_paid": expected_r1,
+            "r1_po": after_r1,
+            "r1_lines": r1_lines,
+            "r2_raw": raw_final,
+            "r2_expected_and_paid": expected_final,
+            "final_po": final_po,
             "final_receipt": receipt_final,
             "token_deltas": {
                 "buyer_during_settlement": 0,
                 "supplier_for_full_po": self.balance(self.args.supplier_address) - supplier_before,
-                "contract_net_change_from_pre_funding": self.balance(contract) - contract_before_fund,
+                "contract_net_change_from_pre_funding": self.balance(contract)
+                - contract_before_fund,
                 "contract_after_close": self.balance(contract),
                 "r1_supplier_gain": r1_supplier_after - supplier_before,
                 "r1_contract_delta": r1_contract_after - contract_after_fund,
@@ -270,10 +336,15 @@ class Proof:
         self.create_po(contract, po_id)
         buyer_after_fund, contract_after_fund, _ = self.fund_po(contract, po_id)
         supplier_before = self.balance(self.args.supplier_address)
-        self.submit(contract, po_id, 1, [
-            {"line_id": 1, "quantity_delta": 5},
-            {"line_id": 2, "quantity_delta": 4},
-        ])
+        self.submit(
+            contract,
+            po_id,
+            1,
+            [
+                {"line_id": 1, "quantity_delta": 5},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+        )
         expected, raw = self.raw_receipt_value(contract, po_id, 1)
         assert expected == 50
         self.settle(contract, po_id, 1, expected)
@@ -287,8 +358,11 @@ class Proof:
         assert self.balance(self.args.supplier_address) - supplier_before == 50
         assert contract_after_fund - self.balance(contract) == 50
         return {
-            "contract_id": contract, "po_id": po_id, "raw": raw,
-            "expected_and_paid": expected, "po": po,
+            "contract_id": contract,
+            "po_id": po_id,
+            "raw": raw,
+            "expected_and_paid": expected,
+            "po": po,
             "token_deltas": {
                 "buyer_during_settlement": 0,
                 "supplier_for_receipt": self.balance(self.args.supplier_address) - supplier_before,
@@ -300,14 +374,24 @@ class Proof:
     def run_stale(self, contract: str, po_id: int) -> dict[str, Any]:
         self.create_po(contract, po_id)
         self.fund_po(contract, po_id)
-        self.submit(contract, po_id, 1, [
-            {"line_id": 1, "quantity_delta": 6},
-            {"line_id": 2, "quantity_delta": 4},
-        ])
-        self.submit(contract, po_id, 2, [
-            {"line_id": 1, "quantity_delta": 5},
-            {"line_id": 2, "quantity_delta": 1},
-        ])
+        self.submit(
+            contract,
+            po_id,
+            1,
+            [
+                {"line_id": 1, "quantity_delta": 6},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+        )
+        self.submit(
+            contract,
+            po_id,
+            2,
+            [
+                {"line_id": 1, "quantity_delta": 5},
+                {"line_id": 2, "quantity_delta": 1},
+            ],
+        )
         stale_value, stale_raw = self.raw_receipt_value(contract, po_id, 2)
         assert stale_value == 35
         assert 5 <= 10 and 1 <= 8  # valid against initial remaining quantities
@@ -315,7 +399,9 @@ class Proof:
         po_before = self.query(contract, "get_po", "--po_id", str(po_id))
         line_a_before = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", "1")
         line_b_before = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", "2")
-        stale_before = self.query(contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", "2")
+        stale_before = self.query(
+            contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", "2"
+        )
         balances_before = {
             "buyer": self.balance(self.args.buyer_address),
             "supplier": self.balance(self.args.supplier_address),
@@ -327,9 +413,20 @@ class Proof:
 
         # Run the expected failure without converting an infrastructure error into success.
         args = [
-            "contract", "invoke", "--contract-id", contract,
-            "--source-account", self.args.buyer_identity, "--network", "local", "--",
-            "accept_receipt_and_settle", "--po_id", str(po_id), "--receipt_id", "2",
+            "contract",
+            "invoke",
+            "--contract-id",
+            contract,
+            "--source-account",
+            self.args.buyer_identity,
+            "--network",
+            "local",
+            "--",
+            "accept_receipt_and_settle",
+            "--po_id",
+            str(po_id),
+            "--receipt_id",
+            "2",
         ]
         rc, out, err = self.run(args, expected_exit=-1)
         failure = out + "\n" + err
@@ -337,7 +434,9 @@ class Proof:
         po_after = self.query(contract, "get_po", "--po_id", str(po_id))
         line_a_after = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", "1")
         line_b_after = self.query(contract, "get_line", "--po_id", str(po_id), "--line_id", "2")
-        stale_after = self.query(contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", "2")
+        stale_after = self.query(
+            contract, "get_receipt", "--po_id", str(po_id), "--receipt_id", "2"
+        )
         balances_after = {
             "buyer": self.balance(self.args.buyer_address),
             "supplier": self.balance(self.args.supplier_address),
@@ -348,7 +447,9 @@ class Proof:
         assert stale_after == stale_before and stale_after["status"] == "Submitted"
         assert balances_after == balances_before
         return {
-            "contract_id": contract, "po_id": po_id, "stale_value_from_raw": stale_value,
+            "contract_id": contract,
+            "po_id": po_id,
+            "stale_value_from_raw": stale_value,
             "pre_post": {
                 "po": {"before": po_before, "after": po_after},
                 "line_a": {"before": line_a_before, "after": line_a_after},
@@ -367,8 +468,11 @@ class Proof:
         if size != self.args.expected_wasm_size or sha != self.args.expected_wasm_sha256:
             raise RuntimeError(f"unexpected WASM size/hash: {size}/{sha}")
         source = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.repo_root,
-            text=True, capture_output=True, check=True,
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo_root,
+            text=True,
+            capture_output=True,
+            check=True,
         ).stdout.strip()
         self.summary["source_sha"] = source
         self.summary["stellar_cli"] = self.run(["--version"])[1].strip()
@@ -414,7 +518,8 @@ class Proof:
         stale = self.summary["stale"]
         repeat_summary = [
             {
-                "execution": item["execution"], "contract_id": item["contract_id"],
+                "execution": item["execution"],
+                "contract_id": item["contract_id"],
                 "first_payout": item["r1_expected_and_paid"],
                 "final_payout": item["r2_expected_and_paid"],
                 "status": item["final_po"]["status"],
@@ -450,10 +555,14 @@ class Proof:
             },
             "repeat_runs": repeat_summary,
         }
-        self.log.write("\nSEMANTIC_SUMMARY_JSON:\n" + json.dumps(self.summary, indent=2, sort_keys=True) + "\n")
+        self.log.write(
+            "\nSEMANTIC_SUMMARY_JSON:\n" + json.dumps(self.summary, indent=2, sort_keys=True) + "\n"
+        )
         self.log.flush()
         print("PROCURESETTLE_LOCAL_FLAGSHIP_PROOF_SUMMARY")
-        print(json.dumps({"verdict": "PASS", "report": str(self.log_path), **final_summary}, indent=2))
+        print(
+            json.dumps({"verdict": "PASS", "report": str(self.log_path), **final_summary}, indent=2)
+        )
 
 
 def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str, Any]]:
@@ -463,19 +572,33 @@ def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str,
     ]
 
     def add_po(flow: str, po_id: str) -> None:
-        plan.append({
-            "method": "create_po", "flow": flow, "po_id": po_id,
-            "buyer": args.buyer_address, "supplier": args.supplier_address,
-            "token": args.sac_id, "lines": LINES,
-        })
-        plan.append({
-            "method": "accept_po", "flow": flow, "po_id": po_id,
-            "source": args.supplier_identity,
-        })
-        plan.append({
-            "method": "fund_po", "flow": flow, "po_id": po_id,
-            "source": args.buyer_identity,
-        })
+        plan.append(
+            {
+                "method": "create_po",
+                "flow": flow,
+                "po_id": po_id,
+                "buyer": args.buyer_address,
+                "supplier": args.supplier_address,
+                "token": args.sac_id,
+                "lines": LINES,
+            }
+        )
+        plan.append(
+            {
+                "method": "accept_po",
+                "flow": flow,
+                "po_id": po_id,
+                "source": args.supplier_identity,
+            }
+        )
+        plan.append(
+            {
+                "method": "fund_po",
+                "flow": flow,
+                "po_id": po_id,
+                "source": args.buyer_identity,
+            }
+        )
 
     def add_receipt(
         flow: str,
@@ -484,54 +607,94 @@ def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str,
         quantities: list[dict[str, int]],
         expected_contract_error: str | None = None,
     ) -> None:
-        plan.append({
-            "method": "submit_receipt", "flow": flow, "po_id": po_id,
-            "receipt_id": receipt_id, "quantities": quantities,
-            "source": args.supplier_identity,
-        })
+        plan.append(
+            {
+                "method": "submit_receipt",
+                "flow": flow,
+                "po_id": po_id,
+                "receipt_id": receipt_id,
+                "quantities": quantities,
+                "source": args.supplier_identity,
+            }
+        )
         settle: dict[str, Any] = {
-            "method": "accept_receipt_and_settle", "flow": flow, "po_id": po_id,
-            "receipt_id": receipt_id, "source": args.buyer_identity,
+            "method": "accept_receipt_and_settle",
+            "flow": flow,
+            "po_id": po_id,
+            "receipt_id": receipt_id,
+            "source": args.buyer_identity,
         }
         if expected_contract_error:
             settle["expected_contract_error"] = expected_contract_error
         plan.append(settle)
 
     add_po("control", "po_base")
-    add_receipt("control", "po_base", 1, [
-        {"line_id": 1, "quantity_delta": 6},
-        {"line_id": 2, "quantity_delta": 4},
-    ])
-    add_receipt("control", "po_base", 2, [
-        {"line_id": 1, "quantity_delta": 4},
-        {"line_id": 2, "quantity_delta": 4},
-    ])
-    add_po("changed_quantity", "po_base+1")
-    add_receipt("changed_quantity", "po_base+1", 1, [
-        {"line_id": 1, "quantity_delta": 5},
-        {"line_id": 2, "quantity_delta": 4},
-    ])
-    add_po("stale_rejection", "po_base+2")
-    add_receipt("stale_rejection", "po_base+2", 1, [
-        {"line_id": 1, "quantity_delta": 6},
-        {"line_id": 2, "quantity_delta": 4},
-    ])
     add_receipt(
-        "stale_rejection", "po_base+2", 2,
+        "control",
+        "po_base",
+        1,
+        [
+            {"line_id": 1, "quantity_delta": 6},
+            {"line_id": 2, "quantity_delta": 4},
+        ],
+    )
+    add_receipt(
+        "control",
+        "po_base",
+        2,
+        [
+            {"line_id": 1, "quantity_delta": 4},
+            {"line_id": 2, "quantity_delta": 4},
+        ],
+    )
+    add_po("changed_quantity", "po_base+1")
+    add_receipt(
+        "changed_quantity",
+        "po_base+1",
+        1,
+        [
+            {"line_id": 1, "quantity_delta": 5},
+            {"line_id": 2, "quantity_delta": 4},
+        ],
+    )
+    add_po("stale_rejection", "po_base+2")
+    add_receipt(
+        "stale_rejection",
+        "po_base+2",
+        1,
+        [
+            {"line_id": 1, "quantity_delta": 6},
+            {"line_id": 2, "quantity_delta": 4},
+        ],
+    )
+    add_receipt(
+        "stale_rejection",
+        "po_base+2",
+        2,
         [{"line_id": 1, "quantity_delta": 5}, {"line_id": 2, "quantity_delta": 1}],
         expected_contract_error=EXPECTED_STALE_ERROR,
     )
     for run_number in range(1, 4):
         flow = f"repeat_run_{run_number}"
         add_po(flow, "1")
-        add_receipt(flow, "1", 1, [
-            {"line_id": 1, "quantity_delta": 6},
-            {"line_id": 2, "quantity_delta": 4},
-        ])
-        add_receipt(flow, "1", 2, [
-            {"line_id": 1, "quantity_delta": 4},
-            {"line_id": 2, "quantity_delta": 4},
-        ])
+        add_receipt(
+            flow,
+            "1",
+            1,
+            [
+                {"line_id": 1, "quantity_delta": 6},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+        )
+        add_receipt(
+            flow,
+            "1",
+            2,
+            [
+                {"line_id": 1, "quantity_delta": 4},
+                {"line_id": 2, "quantity_delta": 4},
+            ],
+        )
     return plan
 
 
@@ -549,22 +712,29 @@ def dry_run(args: argparse.Namespace) -> int:
             print(f"DRY_RUN_ERROR: {problem}", file=sys.stderr)
         return 1
     print("PROCURESETTLE_LOCAL_FLAGSHIP_PROOF_DRY_RUN")
-    print(json.dumps({
-        "dry_run": True,
-        "transactions_submitted": 0,
-        "config_dir": str(config),
-        "wasm": str(wasm),
-        "report_dir": str(args.report_dir.resolve()),
-        "sac_id": args.sac_id,
-        "planned_transactions": planned_transactions(args, wasm),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "dry_run": True,
+                "transactions_submitted": 0,
+                "config_dir": str(config),
+                "wasm": str(wasm),
+                "report_dir": str(args.report_dir.resolve()),
+                "sac_id": args.sac_id,
+                "planned_transactions": planned_transactions(args, wasm),
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, required=True)
-    parser.add_argument("--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm"))
+    parser.add_argument(
+        "--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm")
+    )
     parser.add_argument("--expected-wasm-size", type=int, default=EXPECTED_WASM_SIZE)
     parser.add_argument("--expected-wasm-sha256", default=EXPECTED_WASM_SHA)
     parser.add_argument("--report-dir", type=Path, default=Path(".codex/reports/stage5"))

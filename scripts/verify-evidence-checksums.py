@@ -9,7 +9,6 @@ import re
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = (ROOT / "evidence").resolve()
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -59,8 +58,7 @@ def main(argv: list[str] | None = None) -> int:
                 (
                     candidate
                     for candidate in candidates
-                    if candidate.is_file()
-                    and candidate.is_relative_to(EVIDENCE)
+                    if candidate.is_file() and candidate.is_relative_to(EVIDENCE)
                 ),
                 None,
             )

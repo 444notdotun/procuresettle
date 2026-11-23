@@ -202,7 +202,9 @@ def check_po_ids(po_data: Any, receipt_data: Any) -> None:
         )
 
 
-def calculate(lines: dict[int, PoLine], quantities: list[ReceiptLine]) -> tuple[list[PayoutLine], Decimal]:
+def calculate(
+    lines: dict[int, PoLine], quantities: list[ReceiptLine]
+) -> tuple[list[PayoutLine], Decimal]:
     payouts: list[PayoutLine] = []
     total = Decimal(0)
     for quantity in quantities:
@@ -216,7 +218,9 @@ def calculate(lines: dict[int, PoLine], quantities: list[ReceiptLine]) -> tuple[
             )
         value = Decimal(quantity.quantity_delta) * line.unit_price
         if not value.is_finite() or value > I128_MAX:
-            raise SettlementError(f"line {quantity.line_id} payout exceeds the i128 base-unit limit")
+            raise SettlementError(
+                f"line {quantity.line_id} payout exceeds the i128 base-unit limit"
+            )
         total += value
         if total > I128_MAX:
             raise SettlementError("total payout exceeds the i128 base-unit limit")
@@ -252,12 +256,12 @@ def print_table(payouts: list[PayoutLine], total: Decimal) -> None:
     ]
     widths = [len(header) for header in headers]
     for row in rows:
-        widths = [max(width, len(cell)) for width, cell in zip(widths, row)]
+        widths = [max(width, len(cell)) for width, cell in zip(widths, row, strict=False)]
 
-    print("  ".join(header.ljust(width) for header, width in zip(headers, widths)))
+    print("  ".join(header.ljust(width) for header, width in zip(headers, widths, strict=False)))
     print("  ".join("-" * width for width in widths))
     for row in rows:
-        cells = [cell.ljust(width) for cell, width in zip(row, widths)]
+        cells = [cell.ljust(width) for cell, width in zip(row, widths, strict=False)]
         print("  ".join(cells).rstrip())
     print("")
     print(f"Total payout: {format_amount(total)}")

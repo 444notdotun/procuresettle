@@ -424,6 +424,40 @@ fn po_metadata_getters_return_stored_values() {
     assert_eq!(f.client().get_po_buyer(&42), f.buyer);
     assert_eq!(f.client().get_po_supplier(&42), f.supplier);
     assert_eq!(f.client().get_po_token(&42), f.token);
+    assert_eq!(f.client().get_po_total_value(&42), 100);
+}
+
+#[test]
+fn po_total_value_matches_independent_line_item_sum() {
+    let f = fixture();
+    let lines = soroban_sdk::vec![
+        &f.env,
+        LineInput {
+            line_id: 3,
+            ordered_quantity: 7,
+            unit_price: 11,
+        },
+        LineInput {
+            line_id: 5,
+            ordered_quantity: 4,
+            unit_price: 13,
+        },
+    ];
+    authorized_create(&f, 43, &lines);
+
+    let independent_sum = i128::from(7) * 11 + i128::from(4) * 13;
+    assert_eq!(independent_sum, 129);
+    assert_eq!(f.client().get_po_total_value(&43), independent_sum);
+}
+
+#[test]
+fn po_total_value_returns_not_found_for_unknown_po() {
+    let f = fixture();
+
+    assert_eq!(
+        f.client().try_get_po_total_value(&999),
+        Err(Ok(PoError::NotFound))
+    );
 }
 
 #[test]
@@ -1684,6 +1718,41 @@ fn buyer_rejection_only_changes_receipt_status() {
     assert_eq!(token_balance(&f, &f.buyer), buyer_before);
     assert_eq!(token_balance(&f, &f.supplier), supplier_before);
     assert_eq!(token_balance(&f, &f.contract), contract_before);
+}
+
+#[test]
+fn receipt_rejection_publishes_expected_topics_and_buyer_data() {
+    let f = fixture();
+    funded_flagship(&f, 216);
+    authorized_submit(&f, 216, 1, &valid_receipt(&f));
+
+    let invoke = MockAuthInvoke {
+        contract: &f.contract,
+        fn_name: "reject_receipt",
+        args: (216u64, 1u64).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.client()
+        .mock_auths(&[MockAuth {
+            address: &f.buyer,
+            invoke: &invoke,
+        }])
+        .reject_receipt(&216, &1);
+
+    let events = f.env.events().all().filter_by_contract(&f.contract);
+    assert_eq!(
+        events.last(),
+        Some(&(
+            f.contract.clone(),
+            soroban_sdk::vec![
+                &f.env,
+                Symbol::new(&f.env, "receipt_rejected").into_val(&f.env),
+                216_u64.into_val(&f.env),
+                1_u64.into_val(&f.env),
+            ],
+            f.buyer.clone().into_val(&f.env),
+        ))
+    );
 }
 
 #[test]

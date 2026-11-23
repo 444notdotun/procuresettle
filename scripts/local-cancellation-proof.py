@@ -16,9 +16,9 @@ import shlex
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from typing import Any
-import tomllib
 
 EXPECTED_WASM_SIZE = 25_927
 EXPECTED_WASM_SHA = "d434c54aa46c511bc5ba0115ae675ae4e585f77f4a0e9cc0199f910df0f225b3"
@@ -58,18 +58,14 @@ class Proof:
         display = shlex.join(cmd).replace(str(self.config), "$PRIVATE_CONFIG_DIR")
         self.log.write(f"\n$ {display}\n")
         try:
-            proc = subprocess.run(
-                cmd, text=True, capture_output=True, check=False, timeout=180
-            )
+            proc = subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=180)
         except subprocess.TimeoutExpired as exc:
             out = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
             err = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
             self.log.write(f"TIMEOUT after 180s\nSTDOUT:\n{out}\nSTDERR:\n{err}\n")
             self.log.flush()
             raise RuntimeError(f"command timed out; inspect {self.log_path}") from exc
-        self.log.write(
-            f"EXIT={proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}\n"
-        )
+        self.log.write(f"EXIT={proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}\n")
         self.log.flush()
         output = proc.stdout + "\n" + proc.stderr
         if expected_success and proc.returncode != 0:
@@ -85,13 +81,19 @@ class Proof:
         for tx_hash in hashes:
             result = self.fetch_result(tx_hash)
             succeeded = '"tx_success"' in result
-            self.transactions.append({"hash": tx_hash.lower(), "outcome": "tx_success" if succeeded else "tx_failed"})
+            self.transactions.append(
+                {"hash": tx_hash.lower(), "outcome": "tx_success" if succeeded else "tx_failed"}
+            )
             if expected_success and not succeeded:
                 raise RuntimeError(f"submitted transaction {tx_hash} did not report tx_success")
             if not expected_success and succeeded:
-                raise RuntimeError(f"rejected cancellation produced successful transaction {tx_hash}")
+                raise RuntimeError(
+                    f"rejected cancellation produced successful transaction {tx_hash}"
+                )
         if expected_success and not read_only and not hashes:
-            raise RuntimeError(f"mutating command produced no transaction hash; inspect {self.log_path}")
+            raise RuntimeError(
+                f"mutating command produced no transaction hash; inspect {self.log_path}"
+            )
         return proc.stdout, proc.stderr, hashes
 
     def fetch_result(self, tx_hash: str) -> str:
@@ -127,8 +129,14 @@ class Proof:
             )
             return value, output
         command = [
-            "contract", "invoke", "--contract-id", contract,
-            "--source-account", source, "--network", "local",
+            "contract",
+            "invoke",
+            "--contract-id",
+            contract,
+            "--source-account",
+            source,
+            "--network",
+            "local",
         ]
         for signer in signers:
             command += ["--sign-with-key", signer]
@@ -158,20 +166,29 @@ class Proof:
         invoke. Soroban address authorization entries are signed here using the
         pinned stellar-sdk helper so each party signs the exact simulated call.
         """
-        from stellar_sdk import Keypair, SorobanServer, TransactionEnvelope
         import stellar_sdk
+        from stellar_sdk import Keypair, SorobanServer, TransactionEnvelope, scval
+        from stellar_sdk import xdr as stellar_xdr
         from stellar_sdk.address import Address
         from stellar_sdk.auth import authorize_entry
-        from stellar_sdk import scval, xdr as stellar_xdr
         from stellar_sdk.soroban_rpc import AuthMode
 
         if stellar_sdk.__version__ != "13.1.0":
             raise RuntimeError(f"expected stellar-sdk 13.1.0, got {stellar_sdk.__version__}")
 
         command = [
-            "contract", "invoke", "--contract-id", contract,
-            "--source-account", source, "--network", "local", "--build-only",
-            "--", "cancel_po", *cancel_args,
+            "contract",
+            "invoke",
+            "--contract-id",
+            contract,
+            "--source-account",
+            source,
+            "--network",
+            "local",
+            "--build-only",
+            "--",
+            "cancel_po",
+            *cancel_args,
         ]
         transaction_xdr, err, _ = self.run(command, read_only=True)
         envelope = TransactionEnvelope.from_xdr(
@@ -192,9 +209,7 @@ class Proof:
 
         server = SorobanServer("http://localhost:8000/soroban/rpc")
         try:
-            simulation = server.simulate_transaction(
-                envelope, auth_mode=AuthMode.RECORD_ALL_NOROOT
-            )
+            simulation = server.simulate_transaction(envelope, auth_mode=AuthMode.RECORD_ALL_NOROOT)
             if simulation.error:
                 raise RuntimeError(f"cancellation simulation failed: {simulation.error}")
             prepared = server.prepare_transaction(envelope, simulation)
@@ -209,24 +224,18 @@ class Proof:
             }
             signed_entries = []
             found_supplier = False
-            found_buyer = False
             for entry in entries:
                 if entry.credentials.address is None:
                     if entry.credentials.type.name == "SOROBAN_CREDENTIALS_SOURCE_ACCOUNT":
-                        found_buyer = True
                         signed_entries.append(entry)
                         continue
                     raise RuntimeError(
                         f"unsupported cancellation auth credential type {entry.credentials.type}"
                     )
-                address = Address.from_xdr_sc_address(
-                    entry.credentials.address.address
-                ).address
+                address = Address.from_xdr_sc_address(entry.credentials.address.address).address
                 key = keys_by_address.get(address)
                 if key is None:
                     raise RuntimeError(f"unexpected cancellation authorizer {address}")
-                if address == buyer_key.public_key:
-                    found_buyer = True
                 if address == supplier_key.public_key:
                     found_supplier = True
                 if authorize_supplier or address != supplier_key.public_key:
@@ -243,8 +252,7 @@ class Proof:
             prepared.sign(buyer_key)
             tx_hash = prepared.hash_hex()
             self.log.write(
-                f"\nSDK sendTransaction hash={tx_hash} "
-                f"supplier_authorized={authorize_supplier}\n"
+                f"\nSDK sendTransaction hash={tx_hash} supplier_authorized={authorize_supplier}\n"
             )
             self.log.flush()
             send_result = server.send_transaction(prepared)
@@ -261,10 +269,12 @@ class Proof:
             )
             self.log.flush()
             expected = authorize_supplier
-            self.transactions.append({
-                "hash": tx_hash,
-                "outcome": "tx_success" if succeeded else "tx_failed",
-            })
+            self.transactions.append(
+                {
+                    "hash": tx_hash,
+                    "outcome": "tx_success" if succeeded else "tx_failed",
+                }
+            )
             if succeeded != expected:
                 raise RuntimeError(
                     f"cancellation tx {tx_hash} status {result.status.value}; expected "
@@ -293,8 +303,7 @@ class Proof:
                         and data
                         and data[0] == "failed account authentication with error"
                         and any(
-                            isinstance(item, Address)
-                            and item.address == supplier_key.public_key
+                            isinstance(item, Address) and item.address == supplier_key.public_key
                             for item in data
                         )
                     ):
@@ -331,14 +340,21 @@ class Proof:
         raise RuntimeError(f"CLI returned no JSON value: {stdout!r} {stderr!r}")
 
     def query(self, contract: str, method: str, *args: str) -> Any:
-        value, _ = self.invoke(
-            contract, self.args.buyer_identity, method, *args, read_only=True
-        )
+        value, _ = self.invoke(contract, self.args.buyer_identity, method, *args, read_only=True)
         return value
 
     def balance(self, address: str) -> int:
         out, err, _ = self.run(
-            ["token", "balance", "--id", self.args.sac_id, "--account", address, "--network", "local"],
+            [
+                "token",
+                "balance",
+                "--id",
+                self.args.sac_id,
+                "--account",
+                address,
+                "--network",
+                "local",
+            ],
             read_only=True,
         )
         for line in reversed((out + "\n" + err).splitlines()):
@@ -356,10 +372,18 @@ class Proof:
         return matches[-1]
 
     def deploy(self) -> str:
-        out, err, _ = self.run([
-            "contract", "deploy", "--wasm", str(self.wasm),
-            "--source-account", self.args.issuer_identity, "--network", "local",
-        ])
+        out, err, _ = self.run(
+            [
+                "contract",
+                "deploy",
+                "--wasm",
+                str(self.wasm),
+                "--source-account",
+                self.args.issuer_identity,
+                "--network",
+                "local",
+            ]
+        )
         matches = CONTRACT_ID.findall(out + "\n" + err)
         if not matches:
             raise RuntimeError("deployment returned no contract ID")
@@ -374,9 +398,14 @@ class Proof:
         cli_version, _, _ = self.run(["--version"], read_only=True)
         if not cli_version.split() or cli_version.split()[1] != "28.1.0":
             raise RuntimeError(f"expected Stellar CLI 28.1.0, got {cli_version.strip()!r}")
-        network, network_err, _ = self.run(["network", "info", "--network", "local"], read_only=True)
+        network, network_err, _ = self.run(
+            ["network", "info", "--network", "local"], read_only=True
+        )
         network_info = network + network_err
-        if "Standalone Network ; February 2017" not in network_info or "Protocol Version: 28" not in network_info:
+        if (
+            "Standalone Network ; February 2017" not in network_info
+            or "Protocol Version: 28" not in network_info
+        ):
             raise RuntimeError("expected a protocol-28 standalone local network")
 
         buyer = self.address(self.args.buyer_identity)
@@ -394,9 +423,19 @@ class Proof:
         po_id = time.time_ns() // 1_000_000
         lines_arg = json.dumps(LINES, separators=(",", ":"))
         self.invoke(
-            contract, self.args.buyer_identity, "create_po",
-            "--po_id", str(po_id), "--buyer", buyer, "--supplier", supplier,
-            "--token", self.args.sac_id, "--lines", lines_arg,
+            contract,
+            self.args.buyer_identity,
+            "create_po",
+            "--po_id",
+            str(po_id),
+            "--buyer",
+            buyer,
+            "--supplier",
+            supplier,
+            "--token",
+            self.args.sac_id,
+            "--lines",
+            lines_arg,
         )
         created = self.query(contract, "get_po", "--po_id", str(po_id))
         if created.get("status") != "Draft" or int(created.get("total_value", -1)) != 100:
@@ -413,12 +452,24 @@ class Proof:
             separators=(",", ":"),
         )
         self.invoke(
-            contract, self.args.supplier_identity, "submit_receipt",
-            "--po_id", str(po_id), "--receipt_id", "1", "--quantities", receipt_lines,
+            contract,
+            self.args.supplier_identity,
+            "submit_receipt",
+            "--po_id",
+            str(po_id),
+            "--receipt_id",
+            "1",
+            "--quantities",
+            receipt_lines,
         )
         paid_value, _ = self.invoke(
-            contract, self.args.buyer_identity, "accept_receipt_and_settle",
-            "--po_id", str(po_id), "--receipt_id", "1",
+            contract,
+            self.args.buyer_identity,
+            "accept_receipt_and_settle",
+            "--po_id",
+            str(po_id),
+            "--receipt_id",
+            "1",
         )
         if int(paid_value) != 56:
             raise RuntimeError(f"partial receipt settled {paid_value!r}, expected 56")
@@ -450,7 +501,8 @@ class Proof:
         _, unauthorized_output = self.submit_cancellation(
             contract,
             self.args.buyer_identity,
-            "--po_id", str(po_id),
+            "--po_id",
+            str(po_id),
             authorize_supplier=False,
         )
         unauthorized_after = {
@@ -463,7 +515,11 @@ class Proof:
             raise RuntimeError("one-party cancellation changed PO state or balances")
 
         self.invoke(
-            contract, self.args.buyer_identity, "cancel_po", "--po_id", str(po_id),
+            contract,
+            self.args.buyer_identity,
+            "cancel_po",
+            "--po_id",
+            str(po_id),
             signers=(self.args.supplier_identity,),
         )
         final = {
@@ -473,8 +529,10 @@ class Proof:
             "contract": self.balance(contract),
         }
         expected = {
-            "status": "Cancelled", "funded_value": 100,
-            "paid_value": 56, "refunded_value": 44,
+            "status": "Cancelled",
+            "funded_value": 100,
+            "paid_value": 56,
+            "refunded_value": 44,
             "buyer_balance": initial["buyer"] - 56,
             "supplier_balance": initial["supplier"] + 56,
             "contract_balance": 0,
@@ -494,8 +552,11 @@ class Proof:
         return {
             "verdict": "PASS",
             "source_commit": subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=self.repo,
-                check=True, text=True, capture_output=True,
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.repo,
+                check=True,
+                text=True,
+                capture_output=True,
             ).stdout.strip(),
             "wasm_size": size,
             "wasm_sha256": wasm_sha,
@@ -521,14 +582,19 @@ def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str,
     return [
         {"method": "deploy", "source": args.issuer_identity, "wasm": str(wasm)},
         {
-            "method": "create_po", "po_id": po_id,
-            "buyer": args.buyer_address, "supplier": args.supplier_address,
-            "token": args.sac_id, "lines": LINES,
+            "method": "create_po",
+            "po_id": po_id,
+            "buyer": args.buyer_address,
+            "supplier": args.supplier_address,
+            "token": args.sac_id,
+            "lines": LINES,
         },
         {"method": "accept_po", "po_id": po_id, "source": args.supplier_identity},
         {"method": "fund_po", "po_id": po_id, "source": args.buyer_identity},
         {
-            "method": "submit_receipt", "po_id": po_id, "receipt_id": 1,
+            "method": "submit_receipt",
+            "po_id": po_id,
+            "receipt_id": 1,
             "quantities": [
                 {"line_id": 1, "quantity_delta": 6},
                 {"line_id": 2, "quantity_delta": 4},
@@ -536,16 +602,20 @@ def planned_transactions(args: argparse.Namespace, wasm: Path) -> list[dict[str,
             "source": args.supplier_identity,
         },
         {
-            "method": "accept_receipt_and_settle", "po_id": po_id,
-            "receipt_id": 1, "source": args.buyer_identity,
+            "method": "accept_receipt_and_settle",
+            "po_id": po_id,
+            "receipt_id": 1,
+            "source": args.buyer_identity,
         },
         {
-            "method": "cancel_po", "po_id": po_id,
+            "method": "cancel_po",
+            "po_id": po_id,
             "signers": [args.buyer_identity],
             "expected_result": "rejected: supplier authorization absent",
         },
         {
-            "method": "cancel_po", "po_id": po_id,
+            "method": "cancel_po",
+            "po_id": po_id,
             "signers": [args.buyer_identity, args.supplier_identity],
             "expected_result": "settles remaining refund of 44",
         },
@@ -566,22 +636,29 @@ def dry_run(args: argparse.Namespace) -> int:
             print(f"DRY_RUN_ERROR: {problem}", file=sys.stderr)
         return 1
     print("PROCURESETTLE_LOCAL_CANCELLATION_PROOF_DRY_RUN")
-    print(json.dumps({
-        "dry_run": True,
-        "transactions_submitted": 0,
-        "config_dir": str(config),
-        "wasm": str(wasm),
-        "report_dir": str(args.report_dir.resolve()),
-        "sac_id": args.sac_id,
-        "planned_transactions": planned_transactions(args, wasm),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "dry_run": True,
+                "transactions_submitted": 0,
+                "config_dir": str(config),
+                "wasm": str(wasm),
+                "report_dir": str(args.report_dir.resolve()),
+                "sac_id": args.sac_id,
+                "planned_transactions": planned_transactions(args, wasm),
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-dir", type=Path, required=True)
-    parser.add_argument("--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm"))
+    parser.add_argument(
+        "--wasm", type=Path, default=Path("target/wasm32v1-none/release/procuresettle.wasm")
+    )
     parser.add_argument("--expected-wasm-size", type=int, default=EXPECTED_WASM_SIZE)
     parser.add_argument("--expected-wasm-sha256", default=EXPECTED_WASM_SHA)
     parser.add_argument("--report-dir", type=Path, default=Path(".codex/reports/cancellation"))
