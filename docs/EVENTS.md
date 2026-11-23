@@ -6,7 +6,7 @@ part of the interface and consumers should decode values by position. Monetary
 values are signed `i128` token base units; identifiers are `u64` values and
 addresses are Soroban `Address` values.
 
-The contract currently emits `po_created`, `po_funded`, and
+The contract currently emits `po_created`, `po_funded`, `po_refunded`, and
 `receipt_submitted`. The remaining lifecycle entries are reserved schema
 documentation for the corresponding transitions; consumers must not infer that
 an event was emitted unless it is present in the transaction event stream.
@@ -21,6 +21,7 @@ an event was emitted unless it is present in the transaction event stream.
 | `receipt_submitted` | `submit_receipt` | `("receipt_submitted", po_id, receipt_id)` | `supplier` |
 | `receipt_settled` | `accept_receipt_and_settle` | `("receipt_settled", po_id, receipt_id)` | `payout` |
 | `po_cancelled` | `cancel_po` | `("po_cancelled", po_id)` | `refund` |
+| `po_refunded` | `cancel_po` | `("po_refunded", po_id)` | `(buyer, refund)` |
 
 For the event rows that carry an address, the value is the party recorded on
 the PO. `payout` and `refund` are the amount settled or returned in the PO's
@@ -74,6 +75,15 @@ unpaid, unrefunded value.
 
 - Topics: `("po_cancelled", po_id)`
 - Data: `refund`
+
+## `po_refunded`
+
+Published by `cancel_po` after a successful transfer of the positive unpaid,
+unrefunded balance to the recorded buyer. An accepted PO cancelled before
+funding emits no refund event.
+
+- Topics: `("po_refunded", po_id)`
+- Data: `(buyer, refund)`
 
 ## `receipt_submitted`
 

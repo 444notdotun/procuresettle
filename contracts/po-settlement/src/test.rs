@@ -2832,6 +2832,13 @@ fn accepted_unfunded_po_cancels_with_both_parties_and_no_refund() {
     );
 
     authorized_cancel(&f, 203);
+    assert!(f
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&f.contract)
+        .events()
+        .is_empty());
     let po = header(&f, 203);
     assert_eq!(po.status, PoStatus::Cancelled);
     assert_eq!(po.funded_value, 0);
@@ -2925,6 +2932,21 @@ fn partial_settlement_mutual_cancel_refunds_only_remaining_value_and_pending_rec
     let accepted_b = f.client().get_line(&205, &2).accepted_quantity;
 
     authorized_cancel(&f, 205);
+    assert_eq!(
+        f.env.events().all().filter_by_contract(&f.contract),
+        soroban_sdk::vec![
+            &f.env,
+            (
+                f.contract.clone(),
+                soroban_sdk::vec![
+                    &f.env,
+                    Symbol::new(&f.env, "po_refunded").into_val(&f.env),
+                    205_u64.into_val(&f.env),
+                ],
+                (f.buyer.clone(), 44_i128).into_val(&f.env),
+            ),
+        ]
+    );
     let po = header(&f, 205);
     assert_eq!(po.status, PoStatus::Cancelled);
     assert_eq!(po.funded_value, 100);
@@ -3022,6 +3044,13 @@ fn failed_refund_transfer_rolls_back_mutual_cancellation() {
     admin.mock_all_auths().set_authorized(&f.contract, &false);
 
     assert!(f.client().mock_all_auths().try_cancel_po(&206).is_err());
+    assert!(f
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&f.contract)
+        .events()
+        .is_empty());
     assert_eq!(header(&f, 206), po_before);
     assert_eq!(header(&f, 206).status, PoStatus::Funded);
     assert_eq!(header(&f, 206).refunded_value, 0);

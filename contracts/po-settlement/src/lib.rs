@@ -745,7 +745,8 @@ impl PoSettlement {
     /// `funded_value - paid_value - refunded_value` to the buyer and records it in
     /// `refunded_value`. Cancellation is rejected if the stored accounting is inconsistent.
     /// State is written before the outgoing transfer; invocation atomicity reverts it if the
-    /// transfer fails.
+    /// transfer fails. A successful positive refund emits `po_refunded` with the
+    /// buyer and refunded amount.
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
@@ -828,6 +829,11 @@ impl PoSettlement {
                 &contract_address,
                 &header.buyer,
                 &refund,
+            );
+            #[allow(deprecated)]
+            env.events().publish(
+                (Symbol::new(&env, "po_refunded"), po_id),
+                (header.buyer, refund),
             );
         }
         Ok(())
