@@ -1739,19 +1739,21 @@ fn receipt_rejection_publishes_expected_topics_and_buyer_data() {
         }])
         .reject_receipt(&216, &1);
 
-    let events = f.env.events().all().filter_by_contract(&f.contract);
     assert_eq!(
-        events.last(),
-        Some(&(
-            f.contract.clone(),
-            soroban_sdk::vec![
-                &f.env,
-                Symbol::new(&f.env, "receipt_rejected").into_val(&f.env),
-                216_u64.into_val(&f.env),
-                1_u64.into_val(&f.env),
-            ],
-            f.buyer.clone().into_val(&f.env),
-        ))
+        f.env.events().all().filter_by_contract(&f.contract),
+        soroban_sdk::vec![
+            &f.env,
+            (
+                f.contract.clone(),
+                soroban_sdk::vec![
+                    &f.env,
+                    Symbol::new(&f.env, "receipt_rejected").into_val(&f.env),
+                    216_u64.into_val(&f.env),
+                    1_u64.into_val(&f.env),
+                ],
+                f.buyer.clone().into_val(&f.env),
+            ),
+        ]
     );
 }
 
