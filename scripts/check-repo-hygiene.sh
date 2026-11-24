@@ -36,8 +36,9 @@ fail() {
     failed=1
 }
 
-# Editor/IDE/devcontainer configs can execute commands when a folder is opened.
-if hits="$(grep -E '(^|/)\.(vscode|cursor|idea|devcontainer)/' <<<"$tracked")"; then
+# Editor/IDE/devcontainer configs are blocked, except inert extension recommendations.
+hits="$(grep -E '(^|/)\.(vscode|cursor|idea|devcontainer)/' <<<"$tracked" | grep -vE '^\.vscode/extensions\.json$' || true)"
+if [ -n "$hits" ]; then
     fail "editor or devcontainer config must not be committed:"
     sed 's/^/  /' <<<"$hits"
 fi
