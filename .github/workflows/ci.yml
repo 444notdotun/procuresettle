@@ -41,6 +41,12 @@ jobs:
           rustup target add --toolchain 1.95.0 wasm32v1-none
           rustc +1.95.0 --version
 
+      - name: Install pinned cargo-deny
+        run: cargo +1.95.0 install cargo-deny --locked --version 0.22.1
+
+      - name: Check dependency licenses
+        run: cargo +1.95.0 deny check licenses
+
       - name: Check formatting
         run: cargo +1.95.0 --locked fmt --all -- --check
 
