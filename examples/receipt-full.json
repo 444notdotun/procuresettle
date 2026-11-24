@@ -1,0 +1,18 @@
+{
+  "po_id": 1001,
+  "receipt_id": 2002,
+  "quantities": [
+    {
+      "line_id": 1,
+      "quantity_delta": 6
+    },
+    {
+      "line_id": 2,
+      "quantity_delta": 7
+    },
+    {
+      "line_id": 3,
+      "quantity_delta": 4
+    }
+  ]
+}

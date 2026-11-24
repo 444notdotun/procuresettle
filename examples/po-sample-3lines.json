@@ -1,0 +1,22 @@
+{
+  "po_id": 1001,
+  "buyer": "GBUYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "seller": "GSELLERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "lines": [
+    {
+      "line_id": 1,
+      "ordered_quantity": 10,
+      "unit_price": 45000
+    },
+    {
+      "line_id": 2,
+      "ordered_quantity": 12,
+      "unit_price": 28000
+    },
+    {
+      "line_id": 3,
+      "ordered_quantity": 6,
+      "unit_price": 320000
+    }
+  ]
+}
