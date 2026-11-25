@@ -1,12 +1,20 @@
 ## Summary
 
-<!-- What changed, and why? -->
+<!-- What changes, and why? Keep it focused on the user-visible or reviewer-visible change. -->
 
-## Linked issue
+## Related Issues
 
-<!-- Use `Fixes #123` or `Closes #123` so the issue closes when this PR merges. -->
+<!-- Reference any related GitHub issues, for example `Fixes #123` or `Closes #123` so the issue closes when this PR merges. -->
 
 Fixes #
+
+## Checklist
+
+- [ ] Tests added or updated where necessary.
+- [ ] Existing tests pass (`cargo test --workspace --locked`).
+- [ ] `cargo fmt --all -- --check` executed successfully.
+- [ ] Documentation updated where necessary.
+- [ ] No unrelated changes introduced.
 
 ## Verification
 
@@ -14,6 +22,6 @@ Fixes #
 - [ ] `cargo test --workspace --locked`
 - [ ] `stellar contract build --locked --package procuresettle`
 
-## Breaking or schema changes
+## Breaking changes or public interface changes
 
-<!-- List any change to public contract functions, stored data types, or error codes. Write "None" if there are none. -->
+<!-- Optional. List any change to public contract functions, storage structures, or error codes. Write "None" if there are none. -->
