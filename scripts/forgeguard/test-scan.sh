@@ -60,6 +60,9 @@ case_ "embedded Soroban contract spec" 0 <<'EOF'
 printf 'new ContractSpec([ "AAAA%s",\n  "AAAA%s",\n]);\n' "$(head -c 900 /dev/zero | tr '\0' 'B')" "$(head -c 2100 /dev/zero | tr '\0' 'C')" >client.ts
 EOF
 
+case_ "vscode extension recommendations" 0 <<'EOF'
+mkdir -p .vscode && printf '{"recommendations":["rust-lang.rust-analyzer"]}\n' >.vscode/extensions.json
+EOF
 case_ "vscode auto-run task" 2 <<'EOF'
 mkdir -p .vscode && printf '{"tasks":[{"runOn":"folderOpen"}]}\n' >.vscode/tasks.json
 EOF
